@@ -1,9 +1,11 @@
 # requests-utls
 
-A Go prototype for a future Python requests-style client: immutable TLS profiles,
+A Go engine prototype for a separate Python requests-style client: immutable TLS profiles,
 concurrent Sessions, and HTTP/2 header lists that retain interleaved duplicates.
 
-This repository is the **Go engine milestone**, not a released Python package.
+This repository contains the **Go engine** and its versioned C ABI. The Python
+client is maintained in the separate `requests-utls-python` project and imports
+as `requests_utls`; no Go source is copied into the Python repository.
 The module path is temporarily `requests-utls`; change it to the actual GitHub
 repository path when the remote is available.
 
@@ -42,6 +44,20 @@ On the development machine used to create this repository, a checksum-verified
 toolchain is installed at `/Users/luca/.local/share/requests-utls/go/bin/go`.
 No shell configuration was changed.
 
+To build a shared library for another language:
+
+```sh
+make shared
+# macOS: dist/librequests_utls.dylib
+# Linux: dist/librequests_utls.so
+# Windows: dist/librequests_utls.dll
+```
+
+The public contract is [include/requests_utls.h](include/requests_utls.h), described
+in [docs/abi.md](docs/abi.md). The consumer supplies the library path explicitly;
+it does not need this repository at runtime. The generated shared library and
+header are build artifacts under ignored `dist/`.
+
 ## Use the Go API
 
 ```go
@@ -66,6 +82,7 @@ response, err := s.Do(ctx, requestsutls.Request{
         {Name: "x-b", Value: "2"},
         {Name: "x-a", Value: "3"},
     },
+    HeadersOrder: []string{"x-a", "x-b", "x-a"},
 })
 ```
 
@@ -76,6 +93,24 @@ Imports: `requestsutls "requests-utls"`, `"requests-utls/profile"`,
 are fixed at Session creation. Each request owns its header list and body; the
 Session snapshots them. The caller must not modify those slices concurrently
 while `Do` is taking its snapshot. `Profile` itself exposes no mutable internals.
+
+`Request.HeadersOrder` (`headers_order` in JSON) belongs to that request. It is
+copied alongside headers before waiting for execution and does not modify the
+Session, TLS profile, or any other request. Its rules are:
+
+- Omitted/empty: preserve the input header list exactly.
+- A name listed once moves all its values together, in their original order.
+- A repeated name schedules individual occurrences. If present, its number of
+  order entries must equal its number of supplied field occurrences.
+- Missing names are ignored, making reusable order templates possible.
+- Unlisted fields follow in their original relative order.
+- Names must be lowercase regular header names. Pseudo-header order continues
+  to belong to the connection's HTTP/2 profile.
+
+For `x-a:1, x-b:2, x-a:3`, order `x-b,x-a` produces `x-b:2,x-a:1,x-a:3`;
+order `x-a,x-b,x-a` retains the interleaving. Concurrent callers may choose either
+order on the same Session. The Go caller must not mutate input slices during
+the snapshot; the Python wrapper builds private input buffers before submission.
 
 There is no `mount`, adapters registry, mutable Session default-header map, shared
 header-order slice, or automatic cookie jar. Set `cookie` per request when needed.
@@ -117,7 +152,8 @@ while queued, dialing, handshaking, waiting for headers, and reading a body.
 ./bin/requests-utls request \
   -profile profiles/chrome_152.json \
   -url https://tls.peet.ws/api/all \
-  -H 'x-a: 1' -H 'x-b: 2' -H 'x-a: 3'
+  -H 'x-a: 1' -H 'x-a: 3' -H 'x-b: 2' \
+  -headers-order 'x-a,x-b,x-a'
 
 # All workers share a single Session.
 ./bin/requests-utls request \
@@ -206,7 +242,8 @@ bytes, all later frame scheduling, or full Chrome network-stack behavior.
   the request was not processed (unused connection, qualifying GOAWAY or
   REFUSED_STREAM). Ambiguous disconnects and possibly processed requests are
   returned as errors, including POST requests.
-- Python/C ABI bindings, platform wheels and production hardening are later work.
+- The C ABI and separate Python client cover buffered synchronous/asynchronous
+  requests. Published platform wheels and production hardening remain later work.
 - The local tests validate these implementation paths; they do not certify every
   browser version, platform, server, or optional negotiated TLS extension.
 
@@ -214,6 +251,8 @@ bytes, all later frame scheduling, or full Chrome network-stack behavior.
 
 ```text
 session.go                 immutable Session / request admission / uTLS dialing
+header_order.go            request-local ordering including repeated occurrences
+native/                    bounded handles and completion queues for the C ABI
 proxy.go                   HTTP CONNECT, Basic authentication, cancellation
 profile/                   native profile compiler, capture importer and tests
 profiles/                  sanitized native example profiles
@@ -222,6 +261,7 @@ internal/testserver/       local raw TLS + HTTP/2 capture fixture
 session_test.go            wire and concurrency acceptance tests
 cmd/requests-utls/         validate / import-peet / request CLI
 cmd/peetcheck/              opt-in live fingerprint and isolation verification
+cmd/requests-utls-shared/   C ABI shared-library build target
 ```
 
 See `internal/h2/UPSTREAM.md` for the upstream revision and local changes. Preserve

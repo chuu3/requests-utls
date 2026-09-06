@@ -109,6 +109,7 @@ func runRequests(args []string) error {
 	proxyURL := fs.String("proxy", "", "explicit HTTP CONNECT proxy URL (no implicit environment proxy)")
 	proxyEnv := fs.String("proxy-env", "", "read the explicit proxy URL from this environment variable")
 	retries := fs.Int("unprocessed-retries", 0, "proven-unprocessed retry limit: 0 means3, -1 disables, maximum32")
+	headerOrder := fs.String("headers-order", "", "request-level comma-separated regular header names; duplicates allowed")
 	var headers headerFlags
 	fs.Var(&headers, "H", "ordered lowercase header; may repeat")
 	if err := fs.Parse(args); err != nil {
@@ -128,6 +129,10 @@ func runRequests(args []string) error {
 	}
 	if *c > *n {
 		*c = *n
+	}
+	var order []string
+	if *headerOrder != "" {
+		order = strings.Split(*headerOrder, ",")
 	}
 	p, err := profile.LoadFile(*path)
 	if err != nil {
@@ -155,7 +160,7 @@ func runRequests(args []string) error {
 			for id := range jobs {
 				requestCtx, cancel := context.WithTimeout(ctx, *timeout)
 				start := time.Now()
-				res, err := s.Do(requestCtx, requests.Request{Method: *method, URL: *url, Headers: headers, Body: []byte(*body)})
+				res, err := s.Do(requestCtx, requests.Request{Method: *method, URL: *url, Headers: headers, HeadersOrder: order, Body: []byte(*body)})
 				cancel()
 				result := map[string]any{"id": id, "elapsed_ms": time.Since(start).Milliseconds()}
 				if err != nil {

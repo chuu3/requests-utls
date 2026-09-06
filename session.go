@@ -30,6 +30,7 @@ var (
 	ErrSessionClosed    = errors.New("requests-utls: session closed")
 	ErrQueueFull        = errors.New("requests-utls: request queue full")
 	ErrResponseTooLarge = errors.New("requests-utls: response body exceeds limit")
+	ErrInvalidRequest   = errors.New("requests-utls: invalid request")
 )
 
 // HeaderField is one field occurrence. Slices retain duplicates and their order.
@@ -44,7 +45,14 @@ type Request struct {
 	Method  string        `json:"method"`
 	URL     string        `json:"url"`
 	Headers []HeaderField `json:"headers"`
-	Body    []byte        `json:"body,omitempty"`
+	// HeadersOrder contains lowercase regular header names. A name listed once
+	// groups all its values; repeated names specify each occurrence's position.
+	// For a present name, repeated entries must match its number of values.
+	// Absent names are ignored, unlisted fields follow in their original order,
+	// and an empty list preserves Headers exactly. Pseudo-header order remains
+	// part of the Session profile.
+	HeadersOrder []string `json:"headers_order,omitempty"`
+	Body         []byte   `json:"body,omitempty"`
 }
 
 // Response contains the final response's ordered regular fields and raw body.
@@ -205,10 +213,11 @@ func (s *Session) Do(ctx context.Context, input Request) (*Response, error) {
 
 	// Take ownership before waiting for a running slot.
 	input.Headers = append([]HeaderField(nil), input.Headers...)
+	input.HeadersOrder = append([]string(nil), input.HeadersOrder...)
 	input.Body = bytes.Clone(input.Body)
 	req, fields, err := prepareRequest(requestCtx, input)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
 	select {
 	case s.running <- struct{}{}:
@@ -253,6 +262,10 @@ func (s *Session) requestError(ctx context.Context, err error) error {
 }
 
 func prepareRequest(ctx context.Context, in Request) (*http.Request, []hpack.HeaderField, error) {
+	headers, err := orderHeaders(in.Headers, in.HeadersOrder)
+	if err != nil {
+		return nil, nil, err
+	}
 	if in.Method == "" {
 		in.Method = "GET"
 	}
@@ -271,7 +284,7 @@ func prepareRequest(ctx context.Context, in Request) (*http.Request, []hpack.Hea
 	// GOAWAY covering a lower last-stream ID). Ambiguous failures are not replayed.
 	fields := make([]hpack.HeaderField, 0, len(in.Headers))
 	seenLength := false
-	for _, f := range in.Headers {
+	for _, f := range headers {
 		if !httpguts.ValidHeaderFieldName(f.Name) || strings.ToLower(f.Name) != f.Name || !httpguts.ValidHeaderFieldValue(f.Value) || strings.Trim(f.Value, " \t") != f.Value {
 			return nil, nil, fmt.Errorf("requests-utls: invalid HTTP/2 header %q (lowercase regular names required)", f.Name)
 		}

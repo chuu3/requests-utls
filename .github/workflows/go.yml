@@ -10,7 +10,16 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            library: librequests_utls.so
+            peer: requests-utls-testpeer
+          - os: macos-latest
+            library: librequests_utls.dylib
+            peer: requests-utls-testpeer
+          - os: windows-latest
+            library: librequests_utls.dll
+            peer: requests-utls-testpeer.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -21,3 +30,15 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
       - run: go build ./cmd/requests-utls ./cmd/peetcheck
+      - run: go build -buildmode=c-shared -o dist/${{ matrix.library }} ./cmd/requests-utls-shared
+      - run: go build -o dist/${{ matrix.peer }} ./cmd/requests-utls-testpeer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: requests-utls-abi1-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            dist/${{ matrix.library }}
+            dist/${{ matrix.peer }}
+            include/requests_utls.h
+            docs/abi.md
+            profiles/chrome_152.json
+            testdata/chrome_152_fingerprint.json

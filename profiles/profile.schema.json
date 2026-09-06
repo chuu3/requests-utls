@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://requests-utls.local/profile.schema.json",
   "title": "requests-utls wire profile v1",
-  "description": "Structural validation. profile.Load additionally checks supported algorithms, extension-specific fields, TLS consistency and HTTP/2 ranges.",
+  "description": "Structural validation for immutable TLS wire profiles. The Go loader checks semantic consistency and reports advertisement-only algorithms and extension behavior.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -25,12 +25,16 @@
       "properties": {
         "min_version": {
           "enum": [
+            769,
+            770,
             771,
             772
           ]
         },
         "max_version": {
           "enum": [
+            769,
+            770,
             771,
             772
           ]
@@ -372,6 +376,30 @@
                       "maximum": 65000
                     },
                     "minItems": 1
+                  },
+                  "ech_cipher_suites": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "kdf_id": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 3
+                        },
+                        "aead_id": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 3
+                        }
+                      },
+                      "required": [
+                        "kdf_id",
+                        "aead_id"
+                      ]
+                    }
                   }
                 },
                 "required": [
@@ -386,7 +414,59 @@
                     "const": "raw"
                   },
                   "id": {
-                    "const": 51764
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535,
+                    "not": {
+                      "enum": [
+                        0,
+                        5,
+                        10,
+                        11,
+                        13,
+                        16,
+                        17,
+                        18,
+                        21,
+                        23,
+                        24,
+                        27,
+                        28,
+                        34,
+                        35,
+                        41,
+                        42,
+                        43,
+                        44,
+                        45,
+                        50,
+                        51,
+                        2570,
+                        6682,
+                        10794,
+                        13172,
+                        14906,
+                        17513,
+                        17613,
+                        19018,
+                        23130,
+                        27242,
+                        30031,
+                        30032,
+                        31354,
+                        35466,
+                        39578,
+                        43690,
+                        47802,
+                        51914,
+                        56026,
+                        60138,
+                        64250,
+                        65037,
+                        65281,
+                        65486
+                      ]
+                    }
                   },
                   "data_hex": {
                     "type": "string",
@@ -401,6 +481,176 @@
                   "id",
                   "data_hex",
                   "allow_opaque"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "status_request_v2"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "channel_id"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "channel_id_old"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "signature_algorithms_cert"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 65535
+                    },
+                    "minItems": 1
+                  },
+                  "allow_unsupported": {
+                    "type": "boolean",
+                    "description": "Explicit advertisement-only opt-in for signature schemes not implemented by uTLS."
+                  }
+                },
+                "required": [
+                  "type",
+                  "values"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "delegated_credentials"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 65535
+                    },
+                    "minItems": 1
+                  },
+                  "allow_unsupported": {
+                    "type": "boolean",
+                    "description": "Explicit advertisement-only opt-in for signature schemes not implemented by uTLS."
+                  }
+                },
+                "required": [
+                  "type",
+                  "values"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "npn"
+                  },
+                  "protocols": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 255
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "type",
+                  "protocols"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "padding"
+                  },
+                  "padding_length": {
+                    "type": "integer",
+                    "description": "Padding payload bytes on the wire; Peet padding_data_length instead counts hexadecimal characters and is divided by two on import.",
+                    "minimum": 0,
+                    "maximum": 65535
+                  }
+                },
+                "required": [
+                  "type",
+                  "padding_length"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "record_size_limit"
+                  },
+                  "record_size_limit": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 16385
+                  }
+                },
+                "required": [
+                  "type",
+                  "record_size_limit"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "token_binding"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255
+                    },
+                    "minItems": 3,
+                    "maxItems": 257
+                  }
+                },
+                "required": [
+                  "type",
+                  "values"
                 ]
               }
             ]
@@ -420,7 +670,7 @@
       "additionalProperties": false,
       "properties": {
         "settings": {
-          "type": "array",
+          "type": ["array", "null"],
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -484,9 +734,50 @@
             "exclusive",
             "weight"
           ]
+        },
+        "initial_priorities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "stream_dep": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "exclusive": {
+                "type": "boolean"
+              },
+              "weight": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 256
+              },
+              "stream_id": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              }
+            },
+            "required": [
+              "stream_dep",
+              "exclusive",
+              "weight",
+              "stream_id"
+            ]
+          },
+          "description": "Captured initial PRIORITY frames retained as metadata; current transport does not emit them."
         }
       },
       "required": []
+    },
+    "http_version": {
+      "enum": [
+        "h2",
+        "http/1.1"
+      ],
+      "description": "Captured HTTP protocol metadata; default h2. Does not change the captured ALPN unless ForceHTTP1 is explicitly selected."
     }
   },
   "required": [

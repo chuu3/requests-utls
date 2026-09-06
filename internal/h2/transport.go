@@ -30,9 +30,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/chuu3/requests-utls/internal/h2/internal/httpcommon"
 	"golang.org/x/net/http/httpguts"
 	"golang.org/x/net/http2/hpack"
-	"github.com/chuu3/requests-utls/internal/h2/internal/httpcommon"
 )
 
 const (
@@ -1799,6 +1799,10 @@ func (cc *ClientConn) forgetStreamID(id uint32) {
 type clientConnReadLoop struct {
 	_  incomparable
 	cc *ClientConn
+	// Promised streams are canceled immediately. The monotonic peer stream
+	// high-water mark avoids retaining a per-push map just to discard in-flight
+	// frames for already canceled (or implicitly closed) even-numbered streams.
+	lastPushPromiseID uint32
 }
 
 // readLoop runs in its own goroutine and reads and dispatches frames.
@@ -2321,7 +2325,8 @@ func (rl *clientConnReadLoop) processData(f *DataFrame) error {
 		cc.mu.Lock()
 		neverSent := cc.nextStreamID
 		cc.mu.Unlock()
-		if f.StreamID >= neverSent {
+		canceledPush := f.StreamID%2 == 0 && f.StreamID <= rl.lastPushPromiseID
+		if f.StreamID >= neverSent && !canceledPush {
 			// We never asked for this.
 			cc.logf("http2: Transport received unsolicited DATA frame; closing connection")
 			return ConnectionError(ErrCodeProtocol)
@@ -2729,14 +2734,62 @@ func (rl *clientConnReadLoop) processPing(f *PingFrame) error {
 }
 
 func (rl *clientConnReadLoop) processPushPromise(f *PushPromiseFrame) error {
-	// We told the peer we don't want them.
-	// Spec says:
-	// "PUSH_PROMISE MUST NOT be sent if the SETTINGS_ENABLE_PUSH
-	// setting of the peer endpoint is set to 0. An endpoint that
-	// has set this setting and has received acknowledgement MUST
-	// treat the receipt of a PUSH_PROMISE frame as a connection
-	// error (Section 5.4.1) of type PROTOCOL_ERROR."
-	return ConnectionError(ErrCodeProtocol)
+	cc := rl.cc
+	// The ordinary transport advertises ENABLE_PUSH=0. An exact wire profile
+	// may explicitly advertise 1 or omit it (the protocol default is 1).
+	pushAllowed := cc.wireProfile != nil
+	if cc.wireProfile != nil {
+		for _, setting := range cc.wireProfile.Settings {
+			if setting.ID == SettingEnablePush {
+				pushAllowed = setting.Val == 1
+			}
+		}
+	}
+	if !pushAllowed {
+		return ConnectionError(ErrCodeProtocol)
+	}
+	promised := f.PromiseID
+	if promised == 0 || promised%2 != 0 || promised <= rl.lastPushPromiseID || f.StreamID%2 == 0 {
+		return ConnectionError(ErrCodeProtocol)
+	}
+	cc.mu.Lock()
+	parent := cc.streams[f.StreamID]
+	invalidParent := f.StreamID >= cc.nextStreamID || parent != nil && parent.readClosed
+	cc.mu.Unlock()
+	if invalidParent {
+		return ConnectionError(ErrCodeProtocol)
+	}
+	// A locally canceled parent can have a PUSH_PROMISE already in flight.
+	// Decode and reject that promise as well, without resurrecting the parent.
+	rl.lastPushPromiseID = promised
+
+	// Reuse the bounded HEADERS decoder and the connection's existing HPACK
+	// table. Framer checks CONTINUATION ordering against the associated stream;
+	// report field errors against the promised stream, not the parent request.
+	header := f.FrameHeader
+	header.Type, header.StreamID = FrameHeaders, promised
+	meta, err := cc.fr.readMetaFrame(&HeadersFrame{FrameHeader: header, headerFragBuf: f.HeaderBlockFragment()})
+	resetCode := ErrCodeCancel
+	if err != nil {
+		if _, ok := err.(StreamError); !ok {
+			return err
+		}
+		resetCode = ErrCodeProtocol
+	} else {
+		fields := meta.(*MetaHeadersFrame)
+		method := fields.PseudoValue("method")
+		if fields.Truncated || method != "GET" && method != "HEAD" || fields.PseudoValue("scheme") == "" || fields.PseudoValue("authority") == "" || fields.PseudoValue("path") == "" || fields.PseudoValue("status") != "" || fields.PseudoValue("protocol") != "" {
+			resetCode = ErrCodeProtocol
+		}
+	}
+	// RFC 9113 section 8.4.2 explicitly permits declining a push with CANCEL.
+	// No pushed body, response headers, or cookies enter an application request.
+	cc.wmu.Lock()
+	defer cc.wmu.Unlock()
+	if err := cc.fr.WriteRSTStream(promised, resetCode); err != nil {
+		return err
+	}
+	return cc.bw.Flush()
 }
 
 // writeStreamReset sends a RST_STREAM frame.

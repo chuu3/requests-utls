@@ -101,8 +101,8 @@ type streamState int
 // liberally than allowable. More discussion here:
 // https://lists.w3.org/Archives/Public/ietf-http-wg/2016JulSep/0599.html
 //
-// "reserved (remote)" is omitted since the client code does not
-// support server push.
+// "reserved (remote)" is omitted since the client immediately cancels
+// permitted pushes after decoding their field blocks.
 const (
 	stateIdle streamState = iota
 	stateOpen

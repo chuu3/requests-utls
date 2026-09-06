@@ -99,19 +99,22 @@ func (h *headerFlags) Set(s string) error {
 func runRequests(args []string) error {
 	fs := flag.NewFlagSet("request", flag.ContinueOnError)
 	path := fs.String("profile", "profiles/chrome_152.json", "native profile JSON")
-	url := fs.String("url", "", "HTTPS URL supporting h2")
+	url := fs.String("url", "", "HTTP or HTTPS URL")
 	method := fs.String("method", "GET", "HTTP method")
 	body := fs.String("data", "", "request body")
 	n := fs.Int("n", 1, "number of requests")
 	c := fs.Int("c", 1, "concurrent workers sharing one Session")
 	timeout := fs.Duration("timeout", 20*time.Second, "timeout for each request")
 	insecure := fs.Bool("insecure", false, "disable certificate validation (local diagnostics only)")
+	forceHTTP1 := fs.Bool("force-http1", false, "advertise and use only HTTP/1.1")
+	randomJA3 := fs.Bool("random-ja3", false, "shuffle eligible extensions for each new connection")
+	rawContent := fs.Bool("raw-content", false, "return compressed response bytes without content decoding")
 	proxyURL := fs.String("proxy", "", "explicit HTTP CONNECT proxy URL (no implicit environment proxy)")
 	proxyEnv := fs.String("proxy-env", "", "read the explicit proxy URL from this environment variable")
 	retries := fs.Int("unprocessed-retries", 0, "proven-unprocessed retry limit: 0 means3, -1 disables, maximum32")
 	headerOrder := fs.String("headers-order", "", "request-level comma-separated regular header names; duplicates allowed")
 	var headers headerFlags
-	fs.Var(&headers, "H", "ordered lowercase header; may repeat")
+	fs.Var(&headers, "H", "ordered header; may repeat")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -141,7 +144,7 @@ func runRequests(args []string) error {
 	for _, limitation := range p.Limitations() {
 		fmt.Fprintln(os.Stderr, "limitation:", limitation)
 	}
-	s, err := requests.NewSession(requests.Options{Profile: p, ProxyURL: *proxyURL, InsecureSkipVerify: *insecure, MaxConcurrentRequests: *c, MaxUnprocessedRetries: *retries})
+	s, err := requests.NewSession(requests.Options{Profile: p, ProxyURL: *proxyURL, InsecureSkipVerify: *insecure, MaxConcurrentRequests: *c, MaxUnprocessedRetries: *retries, ForceHTTP1: *forceHTTP1, RandomJA3: *randomJA3, DisableContentDecoding: *rawContent})
 	if err != nil {
 		return err
 	}

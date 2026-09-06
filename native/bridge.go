@@ -59,6 +59,9 @@ type sessionConfig struct {
 	CAPEM                    string          `json:"ca_pem"`
 	InsecureSkipVerify       bool            `json:"insecure_skip_verify"`
 	DisableSessionResumption bool            `json:"disable_session_resumption"`
+	ForceHTTP1               bool            `json:"force_http1"`
+	RandomJA3                bool            `json:"random_ja3"`
+	DisableContentDecoding   bool            `json:"disable_content_decoding"`
 	MaxConcurrentRequests    int             `json:"max_concurrent_requests"`
 	MaxPendingRequests       int             `json:"max_pending_requests"`
 	MaxResponseBytes         int64           `json:"max_response_bytes"`
@@ -83,6 +86,7 @@ type responseMetadata struct {
 	Headers    []requestsutls.HeaderField `json:"headers"`
 	Protocol   string                     `json:"protocol"`
 	BodySize   int                        `json:"body_size"`
+	Decoded    bool                       `json:"decoded"`
 }
 
 type session struct {
@@ -158,7 +162,9 @@ func (r *Registry) SessionCreate(data []byte) Result {
 	options := requestsutls.Options{
 		Profile: p, ProxyURL: config.ProxyURL, InsecureSkipVerify: config.InsecureSkipVerify,
 		DisableSessionResumption: config.DisableSessionResumption,
-		MaxConcurrentRequests:    config.MaxConcurrentRequests, MaxPendingRequests: config.MaxPendingRequests,
+		ForceHTTP1:               config.ForceHTTP1, RandomJA3: config.RandomJA3,
+		DisableContentDecoding: config.DisableContentDecoding,
+		MaxConcurrentRequests:  config.MaxConcurrentRequests, MaxPendingRequests: config.MaxPendingRequests,
 		MaxResponseBytes: config.MaxResponseBytes, MaxUnprocessedRetries: config.MaxUnprocessedRetries,
 	}
 	if config.ProxyAuth != nil {
@@ -299,7 +305,7 @@ func execute(engine *requestsutls.Session, ctx context.Context, in requestsutls.
 		}
 		return Error(code, err.Error()), nil
 	}
-	metadata, err := json.Marshal(responseMetadata{response.StatusCode, response.Headers, response.Protocol, len(response.Body)})
+	metadata, err := json.Marshal(responseMetadata{StatusCode: response.StatusCode, Headers: response.Headers, Protocol: response.Protocol, BodySize: len(response.Body), Decoded: response.Decoded})
 	if err != nil {
 		return Error(InternalError, "response metadata encoding failed"), nil
 	}

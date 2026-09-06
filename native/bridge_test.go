@@ -354,7 +354,7 @@ func TestStrictInputAndErrorCodes(t *testing.T) {
 		t.Fatalf("limit: %+v", result)
 	}
 	r.RequestRelease(submitted.Handle)
-	submitted = r.RequestSubmit(sid, metadata(t, server.URL, map[string]any{"headers_order": []string{"X-Bad"}}), nil)
+	submitted = r.RequestSubmit(sid, metadata(t, server.URL, map[string]any{"headers_order": []string{"bad name"}}), nil)
 	if submitted.Code != OK {
 		t.Fatal(submitted)
 	}

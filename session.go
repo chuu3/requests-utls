@@ -1,4 +1,4 @@
-// Package requestsutls provides a concurrent, profile-driven HTTP/2 client.
+// Package requestsutls provides a concurrent, profile-driven HTTP client.
 // This Go prototype deliberately has no mutable default headers or cookie jar.
 package requestsutls
 
@@ -9,7 +9,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -45,23 +44,25 @@ type Request struct {
 	Method  string        `json:"method"`
 	URL     string        `json:"url"`
 	Headers []HeaderField `json:"headers"`
-	// HeadersOrder contains lowercase regular header names. A name listed once
+	// HeadersOrder matches regular header names case-insensitively. A name listed once
 	// groups all its values; repeated names specify each occurrence's position.
 	// For a present name, repeated entries must match its number of values.
 	// Absent names are ignored, unlisted fields follow in their original order,
-	// and an empty list preserves Headers exactly. Pseudo-header order remains
-	// part of the Session profile.
+	// and an empty list preserves Headers exactly. HTTP/1 retains field casing;
+	// HTTP/2 lowercases wire names. Pseudo-header order is part of the profile.
 	HeadersOrder []string `json:"headers_order,omitempty"`
 	Body         []byte   `json:"body,omitempty"`
 }
 
-// Response contains the final response's ordered regular fields and raw body.
-// Compression and redirects are intentionally not applied in this prototype.
+// Response contains the final response's ordered regular fields and body.
+// Content decoding is enabled by default; Decoded identifies transformed bodies
+// while Headers always retain their original wire values. Redirects are not followed.
 type Response struct {
 	StatusCode int           `json:"status_code"`
 	Headers    []HeaderField `json:"headers"`
 	Body       []byte        `json:"body"`
 	Protocol   string        `json:"protocol"`
+	Decoded    bool          `json:"decoded"`
 }
 
 // Options are snapshotted by NewSession. A Session's transport never changes.
@@ -72,6 +73,9 @@ type Options struct {
 	RootCAs                  *x509.CertPool
 	InsecureSkipVerify       bool
 	DisableSessionResumption bool  // Default false: cache TLS tickets within this Session.
+	ForceHTTP1               bool  // Advertise only HTTP/1.1 and use its ordered wire transport.
+	RandomJA3                bool  // Shuffle eligible TLS extensions for each new connection.
+	DisableContentDecoding   bool  // Return the compressed response bytes unchanged.
 	MaxConcurrentRequests    int   // 0 means 64; includes body consumption.
 	MaxPendingRequests       int   // 0 means no waiting queue.
 	MaxResponseBytes         int64 // 0 means 32 MiB.
@@ -88,22 +92,29 @@ type ProxyAuth struct {
 // Session is safe for concurrent Do and Close calls. Create another Session to
 // change the profile or trust configuration; connections cannot cross Sessions.
 type Session struct {
-	profile      *profile.Profile
-	roots        *x509.CertPool
-	insecure     bool
-	proxyURL     *url.URL
-	transport    *h2.Transport
-	maxResponse  int64
-	sessionCache *sessionTicketCache
-	slots        chan struct{}
-	running      chan struct{}
-	ctx          context.Context
-	cancel       context.CancelFunc
-	mu           sync.Mutex
-	closed       bool
-	connections  map[*trackedConn]struct{}
-	requests     sync.WaitGroup
-	closeDone    chan struct{}
+	profile                *profile.Profile
+	roots                  *x509.CertPool
+	insecure               bool
+	proxyURL               *url.URL
+	transport              *h2.Transport
+	maxResponse            int64
+	sessionCache           *sessionTicketCache
+	slots                  chan struct{}
+	running                chan struct{}
+	ctx                    context.Context
+	cancel                 context.CancelFunc
+	mu                     sync.Mutex
+	closed                 bool
+	connections            map[*trackedConn]struct{}
+	requests               sync.WaitGroup
+	closeDone              chan struct{}
+	forceHTTP1             bool
+	randomJA3              bool
+	disableContentDecoding bool
+	protocolMu             sync.Mutex
+	protocols              map[string]string
+	http1Idle              map[string][]*http1Conn
+	http2Ready             map[string][]*http1Conn
 }
 
 func NewSession(o Options) (*Session, error) {
@@ -156,8 +167,18 @@ func NewSession(o Options) (*Session, error) {
 		}
 		wp.HeaderPriority = &h2.PriorityParam{StreamDep: p.StreamDep, Exclusive: p.Exclusive, Weight: uint8(p.Weight - 1)}
 	}
+	if o.Profile.HTTPVersion() == "http/1.1" && len(w.Settings) == 0 {
+		// H1 captures do not supply H2 settings. This is distinct from a real
+		// H2 capture whose explicitly empty SETTINGS frame must stay empty.
+		wp = nil
+	}
 	if err := wp.Validate(); err != nil {
-		return nil, fmt.Errorf("requests-utls: HTTP/2 profile: %w", err)
+		if o.Profile.HTTPVersion() != "http/1.1" {
+			return nil, fmt.Errorf("requests-utls: HTTP/2 profile: %w", err)
+		}
+		// An H1 capture has no H2 settings to reproduce. If a future peer
+		// negotiates H2 with its original ALPN, use the transport defaults.
+		wp = nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Session{
@@ -165,6 +186,9 @@ func NewSession(o Options) (*Session, error) {
 		slots:   make(chan struct{}, o.MaxConcurrentRequests+o.MaxPendingRequests),
 		running: make(chan struct{}, o.MaxConcurrentRequests),
 		ctx:     ctx, cancel: cancel, connections: make(map[*trackedConn]struct{}), closeDone: make(chan struct{}),
+		forceHTTP1: o.ForceHTTP1, randomJA3: o.RandomJA3,
+		disableContentDecoding: o.DisableContentDecoding,
+		protocols:              make(map[string]string), http1Idle: make(map[string][]*http1Conn), http2Ready: make(map[string][]*http1Conn),
 	}
 	if o.RootCAs != nil {
 		s.roots = o.RootCAs.Clone()
@@ -220,7 +244,7 @@ func (s *Session) Do(ctx context.Context, input Request) (*Response, error) {
 	input.Headers = append([]HeaderField(nil), input.Headers...)
 	input.HeadersOrder = append([]string(nil), input.HeadersOrder...)
 	input.Body = bytes.Clone(input.Body)
-	req, fields, err := prepareRequest(requestCtx, input)
+	req, ordered, err := prepareHTTP1Request(requestCtx, input)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
@@ -234,26 +258,65 @@ func (s *Session) Do(ctx context.Context, input Request) (*Response, error) {
 		return nil, s.requestError(ctx, requestCtx.Err())
 	}
 
-	var raw []hpack.HeaderField
-	req = h2.WithOrderedHeaders(req, fields)
-	req = h2.WithResponseHeaderSink(req, &raw)
-	res, err := s.transport.RoundTrip(req)
-	if err != nil {
-		return nil, s.requestError(ctx, err)
+	// Protocol handoffs happen before any HTTP bytes are written. A connection
+	// is transferred intact, including its TLS state, without another handshake.
+	for range 4 {
+		if s.useHTTP1(req) {
+			response, err := s.roundTripHTTP1(req, ordered, input.Body, input.HeadersOrder)
+			if errors.Is(err, errProtocolHandoff) {
+				continue
+			}
+			if err != nil {
+				return nil, s.requestError(ctx, err)
+			}
+			return response, nil
+		}
+		// HTTP/2 names are lowercase on wire; HTTP/1 keeps the original casing.
+		h2Input := input
+		h2Input.Headers = make([]HeaderField, len(input.Headers))
+		h2Input.HeadersOrder = append([]string(nil), input.HeadersOrder...)
+		for i, name := range h2Input.HeadersOrder {
+			h2Input.HeadersOrder[i] = strings.ToLower(name)
+		}
+		for i, field := range input.Headers {
+			h2Input.Headers[i] = HeaderField{Name: strings.ToLower(field.Name), Value: field.Value}
+		}
+		h2Req, fields, err := prepareRequest(requestCtx, h2Input)
+		if err != nil {
+			// Some fields (Host/Connection) are valid only in HTTP/1. If this
+			// origin is new, learn ALPN before rejecting those fields as H2.
+			if !s.httpProtocolKnown(req) {
+				if discoverErr := s.discoverHTTPProtocol(requestCtx, req); discoverErr != nil {
+					return nil, s.requestError(ctx, discoverErr)
+				}
+				if s.useHTTP1(req) {
+					continue
+				}
+			}
+			return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+		}
+		var raw []hpack.HeaderField
+		h2Req = h2.WithOrderedHeaders(h2Req, fields)
+		h2Req = h2.WithResponseHeaderSink(h2Req, &raw)
+		res, err := s.transport.RoundTrip(h2Req)
+		if errors.Is(err, errProtocolHandoff) {
+			continue
+		}
+		if err != nil {
+			return nil, s.requestError(ctx, err)
+		}
+		body, decoded, err := readResponseBody(res, s.maxResponse, !s.disableContentDecoding)
+		res.Body.Close()
+		if err != nil {
+			return nil, s.requestError(ctx, err)
+		}
+		headers := make([]HeaderField, 0, len(raw))
+		for _, f := range raw {
+			headers = append(headers, HeaderField{Name: f.Name, Value: f.Value})
+		}
+		return &Response{StatusCode: res.StatusCode, Headers: headers, Body: body, Protocol: res.Proto, Decoded: decoded}, nil
 	}
-	defer res.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(res.Body, s.maxResponse+1))
-	if err != nil {
-		return nil, s.requestError(ctx, err)
-	}
-	if int64(len(body)) > s.maxResponse {
-		return nil, ErrResponseTooLarge
-	}
-	headers := make([]HeaderField, 0, len(raw))
-	for _, f := range raw {
-		headers = append(headers, HeaderField{Name: f.Name, Value: f.Value})
-	}
-	return &Response{StatusCode: res.StatusCode, Headers: headers, Body: body, Protocol: res.Proto}, nil
+	return nil, errors.New("requests-utls: server repeatedly changed the negotiated HTTP protocol")
 }
 
 func (s *Session) requestError(ctx context.Context, err error) error {
@@ -315,6 +378,29 @@ func prepareRequest(ctx context.Context, in Request) (*http.Request, []hpack.Hea
 }
 
 func (s *Session) dialTLS(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+	// H2's pool may supply a differently cased DNS authority. H1 handoff,
+	// TLS ticket keys, and subsequent requests must use the same origin key.
+	if host, port, err := net.SplitHostPort(addr); err == nil {
+		addr = net.JoinHostPort(strings.ToLower(host), port)
+	}
+	key := "https://" + addr
+	if ready := s.takeHTTPConn(key, false); ready != nil {
+		return ready.conn, nil
+	}
+	conn, err := s.dialTLSConnection(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+	if negotiatedHTTP1(conn) {
+		s.setHTTPProtocol(key, "http/1.1")
+		s.putHTTPConn(key, newHTTP1Conn(conn), true)
+		return nil, errProtocolHandoff
+	}
+	s.setHTTPProtocol(key, "h2")
+	return conn, nil
+}
+
+func (s *Session) dialTLSConnection(ctx context.Context, network, addr string) (net.Conn, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	stop := context.AfterFunc(s.ctx, cancel)
 	defer cancel()
@@ -354,7 +440,7 @@ func (s *Session) dialTLSAttempt(dialCtx context.Context, network, addr string, 
 		tc.Close()
 		return nil, false, err
 	}
-	spec, err := s.profile.NewClientHelloSpec()
+	spec, err := s.profile.NewClientHelloSpecWithOptions(profile.ClientHelloOptions{ForceHTTP1: s.forceHTTP1, RandomJA3: s.randomJA3})
 	if err != nil {
 		tc.Close()
 		return nil, false, err
@@ -370,9 +456,9 @@ func (s *Session) dialTLSAttempt(dialCtx context.Context, network, addr string, 
 		retry := !skipCachedTicket && config.ClientSessionCache != nil && err.Error() == utlsPSKHelloRetryError
 		return nil, retry, fmt.Errorf("requests-utls: TLS handshake: %w", err)
 	}
-	if uconn.ConnectionState().NegotiatedProtocol != "h2" {
+	if protocol := uconn.ConnectionState().NegotiatedProtocol; protocol != "h2" && protocol != "http/1.1" && protocol != "" {
 		tc.Close()
-		return nil, false, errors.New("requests-utls: server did not negotiate h2; HTTP/1.1 fallback is not implemented")
+		return nil, false, errors.New("requests-utls: server negotiated an unsupported ALPN protocol")
 	}
 	return uconn, false, nil
 }
@@ -398,6 +484,7 @@ func (s *Session) Close() error {
 	}
 	s.requests.Wait()
 	s.transport.CloseIdleConnections()
+	s.closeHTTPPools()
 	if s.sessionCache != nil {
 		s.sessionCache.close()
 	}

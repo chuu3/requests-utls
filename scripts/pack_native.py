@@ -242,7 +242,7 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--go", default="go", help="Go executable (default: go on PATH)")
     parser.add_argument("--wheel-platform", required=True)
-    parser.add_argument("--engine-version", "--version", default="v0.1.0")
+    parser.add_argument("--engine-version", "--version", default="v0.2.0")
     parser.add_argument("--peer-output", type=Path)
     parser.add_argument("--glibc-baseline", help="reject ELF symbols newer than this glibc version")
     parser.add_argument("--require-clean", action="store_true")

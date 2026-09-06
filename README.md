@@ -1,7 +1,7 @@
 # requests-utls
 
 A Go engine prototype for a separate Python requests-style client: immutable TLS profiles,
-concurrent Sessions, and HTTP/2 header lists that retain interleaved duplicates.
+concurrent Sessions, and HTTP/2 and HTTP/1.1 header lists that retain interleaved duplicates.
 
 This repository contains the **Go engine** and its versioned C ABI. The Python
 client is maintained in the separate [requests-utls-python](https://github.com/chuu3/requests-utls-python) project and imports
@@ -11,12 +11,15 @@ The Go module path is `github.com/chuu3/requests-utls`.
 The [verification report](docs/verification.md) records local race/wire tests and
 authenticated HTTP CONNECT proxy tests against tls.peet.ws, including both the earlier
 30-second timeout and the passing 60-second concurrent run.
+The Python project's [bulk profile acceptance](https://github.com/chuu3/requests-utls-python/blob/main/docs/profile-acceptance.md)
+checks each supplied cold-handshake capture and records historical Peet JA4
+inconsistencies without treating them as exact fingerprint matches.
 
 ## What works
 
 - Native versioned JSON profiles and an explicit `tls.peet.ws` capture importer.
 - uTLS `HelloCustom` with **fresh extension objects for every connection**.
-- HTTPS with negotiated HTTP/2, directly or through an explicit HTTP CONNECT
+- HTTPS with negotiated HTTP/2 or HTTP/1.1, directly or through an explicit HTTP CONNECT
   proxy; certificate verification is enabled by default.
 - Exact configured initial SETTINGS order, connection WINDOW_UPDATE, pseudo-header
   order, optional HEADERS priority, and ordered regular header occurrences.
@@ -24,6 +27,12 @@ authenticated HTTP CONNECT proxy tests against tls.peet.ws, including both the e
 - Concurrent requests on one Session, HTTP/2 multiplexing, context cancellation,
   bounded request admission, bounded buffered responses, idempotent Session Close.
 - Local TLS/HTTP2 wire tests that inspect what the server actually receives.
+- HTTP/1.1 connection pooling with ordered field names and duplicates, including
+  automatic ALPN fallback and explicit `ForceHTTP1`.
+- Automatic gzip, deflate, Brotli and Zstandard response decoding with bounded
+  encoded and decoded bodies; `DisableContentDecoding` returns original bytes.
+- Optional `RandomJA3` extension shuffling on each new connection without
+  modifying shared profiles or requests already using an established connection.
 
 ## Build and verify
 
@@ -81,8 +90,8 @@ response, err := s.Do(ctx, requestsutls.Request{
 })
 ```
 
-Imports: `requestsutls "requests-utls"`, `"requests-utls/profile"`,
-`"context"`, `"time"`. The example URL must negotiate `h2`.
+Imports: `requestsutls "github.com/chuu3/requests-utls"`,
+`"github.com/chuu3/requests-utls/profile"`, `"context"`, `"time"`.
 
 `Session.Do` can be called from many goroutines. Profile and trust configuration
 are fixed at Session creation. Each request owns its header list and body; the
@@ -99,8 +108,9 @@ Session, TLS profile, or any other request. Its rules are:
   order entries must equal its number of supplied field occurrences.
 - Missing names are ignored, making reusable order templates possible.
 - Unlisted fields follow in their original relative order.
-- Names must be lowercase regular header names. Pseudo-header order continues
-  to belong to the connection's HTTP/2 profile.
+- Names are matched case-insensitively; HTTP/1.1 preserves input spelling and
+  HTTP/2 writes lowercase names. Pseudo-header order continues to belong to the
+  connection's HTTP/2 profile.
 
 For `x-a:1, x-b:2, x-a:3`, order `x-b,x-a` produces `x-b:2,x-a:1,x-a:3`;
 order `x-a,x-b,x-a` retains the interleaving. Concurrent callers may choose either
@@ -114,7 +124,7 @@ Separate Sessions never share connections, profile state or cookies.
 
 ### Connection reuse and TLS session resumption
 
-A Session reuses a healthy HTTP/2 connection by default. Sequential requests on
+A Session reuses healthy HTTP/2 and HTTP/1.1 connections by default. Sequential requests on
 that connection do not create another ClientHello. If the peer sends GOAWAY,
 closes the connection, or the connection expires, the next request needs a new
 connection.
@@ -194,7 +204,7 @@ while queued, dialing, handshaking, waiting for headers, and reading a body.
 
 The CLI writes one JSON result per request. `response.body` is base64 because it
 is an arbitrary byte buffer, not necessarily text. Limitations go to stderr.
-`-H` requires lowercase names; pseudo-headers derive from the URL/method/profile.
+Pseudo-headers derive from the URL/method/profile.
 No User-Agent, Accept-Encoding or ordinary default headers are automatically added.
 An explicit content-length must match the body, and cannot repeat. HTTP/2 allows
 body framing without content-length. Invalid fields are rejected, not repaired.
@@ -256,8 +266,8 @@ bytes, all later frame scheduling, or full Chrome network-stack behavior.
 
 ## Deliberate prototype limits
 
-- HTTP/2 over HTTPS only. No HTTP/1.1 fallback, HTTPS/SOCKS proxy, HTTP/3, WebSocket,
-  CONNECT request, redirect following, automatic decompression, or cookie jar yet.
+- No HTTPS/SOCKS proxy, HTTP/3, WebSocket, user-issued CONNECT request,
+  redirect following, or automatic shared cookie jar yet.
 - Responses are buffered with a default 32 MiB cap; no public streaming API or
   upload streaming, request/response trailers, or informational-response API yet.
 - The concurrency cap bounds admitted work, not a complete configurable
@@ -267,7 +277,7 @@ bytes, all later frame scheduling, or full Chrome network-stack behavior.
   REFUSED_STREAM). Ambiguous disconnects and possibly processed requests are
   returned as errors, including POST requests.
 - The C ABI and separate Python client cover buffered synchronous/asynchronous
-  requests. Published platform wheels and production hardening remain later work.
+  requests. The Python package includes native platform wheels.
 - The local tests validate these implementation paths; they do not certify every
   browser version, platform, server, or optional negotiated TLS extension.
 
@@ -275,6 +285,8 @@ bytes, all later frame scheduling, or full Chrome network-stack behavior.
 
 ```text
 session.go                 immutable Session / request admission / uTLS dialing
+http1.go                   ordered HTTP/1.1 transport, connection pooling, ALPN fallback
+content_decode.go          bounded gzip/deflate/Brotli/Zstandard response decoding
 header_order.go            request-local ordering including repeated occurrences
 native/                    bounded handles and completion queues for the C ABI
 proxy.go                   HTTP CONNECT, Basic authentication, cancellation

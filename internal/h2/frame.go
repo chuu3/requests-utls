@@ -15,9 +15,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/chuu3/requests-utls/internal/h2/internal/httpsfv"
 	"golang.org/x/net/http/httpguts"
 	"golang.org/x/net/http2/hpack"
-	"github.com/chuu3/requests-utls/internal/h2/internal/httpsfv"
 )
 
 const frameHeaderLen = 9
@@ -613,7 +613,7 @@ func (fr *Framer) checkFrameOrder(fh FrameHeader) error {
 	}
 
 	switch fh.Type {
-	case FrameHeaders, FrameContinuation:
+	case FrameHeaders, FramePushPromise, FrameContinuation:
 		if fh.Flags.Has(FlagHeadersEndHeaders) {
 			fr.lastHeaderStream = 0
 		} else {

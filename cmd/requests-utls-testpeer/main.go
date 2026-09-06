@@ -3,6 +3,10 @@
 package main
 
 import (
+	"bytes"
+	"compress/flate"
+	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -11,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/signal"
@@ -21,8 +26,10 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/net/http2/hpack"
+	"github.com/andybalholm/brotli"
 	"github.com/chuu3/requests-utls/internal/testserver"
+	"github.com/klauspost/compress/zstd"
+	"golang.org/x/net/http2/hpack"
 )
 
 type barrier struct {
@@ -114,12 +121,30 @@ func run() error {
 			Headers: headers, BodyBase64: base64.StdEncoding.EncodeToString(request.Body),
 			Connection: request.Connection, StreamID: request.StreamID, DidResume: request.DidResume,
 		})
-		return testserver.Response{Body: body, GoAway: path.Path == "/reconnect", Headers: []hpack.HeaderField{
+		response := testserver.Response{Body: body, GoAway: path.Path == "/reconnect", Headers: []hpack.HeaderField{
 			{Name: "content-type", Value: "application/json"},
 			{Name: "set-cookie", Value: "peer_first=one; Path=/"},
 			{Name: "x-peer", Value: "between"},
 			{Name: "set-cookie", Value: "peer_second=two; Path=/"},
 		}}
+		if strings.HasPrefix(path.Path, "/compressed/") {
+			coding := strings.TrimPrefix(path.Path, "/compressed/")
+			if size, _ := strconv.Atoi(path.Query().Get("size")); size > 0 && size <= 1<<20 {
+				body = bytes.Repeat([]byte("x"), size)
+			}
+			response.Body, err = compressBody(body, coding)
+			if err != nil {
+				return testserver.Response{Status: "400"}
+			}
+			if path.Query().Get("corrupt") == "1" {
+				response.Body = []byte("invalid compressed data")
+			}
+			if coding == "raw-deflate" {
+				coding = "deflate"
+			}
+			response.Headers = append(response.Headers, hpack.HeaderField{Name: "content-encoding", Value: coding})
+		}
+		return response
 	})
 	if err != nil {
 		return err
@@ -131,12 +156,23 @@ func run() error {
 		return err
 	}
 	defer closeProxy()
+	h1 := startHTTP1Peer()
+	defer h1.Close()
+	h1URL, _ := url.Parse(h1.URL)
+	h1Proxy, closeH1Proxy, err := startProxy(h1URL.Host)
+	if err != nil {
+		return err
+	}
+	defer closeH1Proxy()
 	descriptor := map[string]string{
-		"url":            peer.URL,
-		"ca_pem":         string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: peer.Certificate.Raw})),
-		"proxy_url":      proxyURL,
-		"proxy_username": "integration-user",
-		"proxy_password": "integration-password",
+		"url":             peer.URL,
+		"ca_pem":          string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: peer.Certificate.Raw})),
+		"proxy_url":       proxyURL,
+		"proxy_username":  "integration-user",
+		"proxy_password":  "integration-password",
+		"http1_url":       h1.URL,
+		"http1_ca_pem":    string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: h1.Certificate().Raw})),
+		"http1_proxy_url": h1Proxy,
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(descriptor); err != nil {
 		return err
@@ -145,6 +181,82 @@ func run() error {
 	defer stop()
 	<-ctx.Done()
 	return nil
+}
+
+func compressBody(body []byte, coding string) ([]byte, error) {
+	for _, layer := range strings.Split(coding, ",") {
+		var output bytes.Buffer
+		var writer io.WriteCloser
+		switch strings.TrimSpace(layer) {
+		case "gzip":
+			writer = gzip.NewWriter(&output)
+		case "deflate":
+			writer = zlib.NewWriter(&output)
+		case "raw-deflate":
+			writer, _ = flate.NewWriter(&output, flate.DefaultCompression)
+		case "br":
+			writer = brotli.NewWriter(&output)
+		case "zstd":
+			writer, _ = zstd.NewWriter(&output, zstd.WithEncoderConcurrency(1))
+		default:
+			return nil, fmt.Errorf("unsupported test encoding")
+		}
+		if _, err := writer.Write(body); err != nil {
+			writer.Close()
+			return nil, err
+		}
+		if err := writer.Close(); err != nil {
+			return nil, err
+		}
+		body = output.Bytes()
+	}
+	return body, nil
+}
+
+type connectionKey struct{}
+
+func startHTTP1Peer() *httptest.Server {
+	var nextConnection atomic.Int64
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			http.Error(w, "read failed", 400)
+			return
+		}
+		response, _ := json.Marshal(map[string]any{"headers": r.Header, "body_base64": base64.StdEncoding.EncodeToString(body),
+			"connection": r.Context().Value(connectionKey{}), "protocol": r.Proto, "tls_did_resume": r.TLS.DidResume})
+		w.Header().Add("Set-Cookie", "peer_first=one; Path=/; HttpOnly")
+		w.Header().Add("Set-Cookie", "peer_second=two; Path=/; SameSite=Lax")
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasPrefix(r.URL.Path, "/compressed/") {
+			coding := strings.TrimPrefix(r.URL.Path, "/compressed/")
+			if size, _ := strconv.Atoi(r.URL.Query().Get("size")); size > 0 && size <= 1<<20 {
+				response = bytes.Repeat([]byte("x"), size)
+			}
+			response, err = compressBody(response, coding)
+			if err != nil {
+				http.Error(w, "invalid encoding", 400)
+				return
+			}
+			if r.URL.Query().Get("corrupt") == "1" {
+				response = []byte("invalid compressed data")
+			}
+			if coding == "raw-deflate" {
+				coding = "deflate"
+			}
+			w.Header().Set("Content-Encoding", coding)
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(response)))
+		if r.URL.Path == "/reconnect" {
+			w.Header().Set("Connection", "close")
+		}
+		w.Write(response)
+	}))
+	server.Config.ConnContext = func(ctx context.Context, _ net.Conn) context.Context {
+		return context.WithValue(ctx, connectionKey{}, nextConnection.Add(1))
+	}
+	server.StartTLS()
+	return server
 }
 
 func startProxy(target string) (string, func(), error) {

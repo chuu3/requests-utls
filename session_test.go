@@ -354,7 +354,9 @@ func TestResponseLimitAndRequestValidation(t *testing.T) {
 	}
 }
 
-func TestHTTP1ALPNIsExplicitlyRejected(t *testing.T) {
+func TestHTTP1ALPNRejectsPeerThatSendsHTTP2Frames(t *testing.T) {
+	// This test peer deliberately advertises HTTP/1.1 while still speaking H2.
+	// Real HTTP/1.1 fallback and reuse are exercised by the raw H1 wire tests.
 	server, err := testserver.NewWithALPN(nil, []string{"http/1.1"})
 	if err != nil {
 		t.Fatal(err)
@@ -362,7 +364,7 @@ func TestHTTP1ALPNIsExplicitlyRejected(t *testing.T) {
 	t.Cleanup(server.Close)
 	session := testSession(t, server, nil)
 	if _, err := session.Do(testContext(t), Request{Method: "GET", URL: server.URL}); err == nil || (!strings.Contains(strings.ToLower(err.Error()), "alpn") && !strings.Contains(strings.ToLower(err.Error()), "http/1.1")) {
-		t.Fatalf("expected explicit unsupported ALPN error, got %v", err)
+		t.Fatalf("expected HTTP/1.1 framing error from the mismatched peer, got %v", err)
 	}
 }
 

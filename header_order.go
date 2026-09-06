@@ -16,8 +16,21 @@ import (
 // Names must be lowercase regular header names; pseudo-header order belongs to
 // the immutable HTTP/2 profile and cannot be changed through this list.
 func orderHeaders(headers []HeaderField, order []string) ([]HeaderField, error) {
+	return orderHeadersMatching(headers, order, false)
+}
+
+func orderHeadersMatching(headers []HeaderField, order []string, ignoreCase bool) ([]HeaderField, error) {
 	if len(order) == 0 {
 		return headers, nil
+	}
+	if ignoreCase {
+		order = append([]string(nil), order...)
+		for i, name := range order {
+			if !httpguts.ValidHeaderFieldName(name) {
+				return nil, fmt.Errorf("requests-utls: headers_order[%d]: invalid regular header name %q", i, name)
+			}
+			order[i] = strings.ToLower(name)
+		}
 	}
 	counts := make(map[string]int, len(order))
 	for index, name := range order {
@@ -28,8 +41,12 @@ func orderHeaders(headers []HeaderField, order []string) ([]HeaderField, error) 
 	}
 	groups := make(map[string][]HeaderField, len(counts))
 	for _, field := range headers {
-		if counts[field.Name] != 0 {
-			groups[field.Name] = append(groups[field.Name], field)
+		name := field.Name
+		if ignoreCase {
+			name = strings.ToLower(name)
+		}
+		if counts[name] != 0 {
+			groups[name] = append(groups[name], field)
 		}
 	}
 	for _, name := range order {
@@ -51,7 +68,11 @@ func orderHeaders(headers []HeaderField, order []string) ([]HeaderField, error) 
 		}
 	}
 	for _, field := range headers {
-		if counts[field.Name] == 0 {
+		name := field.Name
+		if ignoreCase {
+			name = strings.ToLower(name)
+		}
+		if counts[name] == 0 {
 			result = append(result, field)
 		}
 	}

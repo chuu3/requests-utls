@@ -54,9 +54,12 @@ fields, including unknown nested configuration fields, are rejected.
 | `ca_pem` | Optional PEM CA bundle used as the complete trust store; empty uses system trust |
 | `insecure_skip_verify` | Default false |
 | `disable_session_resumption` | Default false; true disables TLS ticket/PSK reuse, independently of HTTP/2 connection pooling |
+| `random_ja3` | Default false; shuffle eligible extension positions separately for each new connection |
+| `force_http1` | Default false; advertise only HTTP/1.1 and remove HTTP/2 ALPS when true |
+| `disable_content_decoding` | Default false; true returns the original compressed body bytes |
 | `max_concurrent_requests` | Default 64 when zero/omitted |
 | `max_pending_requests` | Default 0; extra admitted requests allowed to wait |
-| `max_response_bytes` | Default 32 MiB when zero/omitted |
+| `max_response_bytes` | Default 32 MiB when zero/omitted; applies to encoded bytes and every decoding layer |
 | `max_unprocessed_retries` | Default 3 when zero/omitted; -1 disables; maximum 32 |
 
 Proxy authentication goes only to the CONNECT proxy. Session transport and
@@ -77,9 +80,13 @@ Success returns `handle = session_id` and JSON:
 ```
 
 `limitations` reports profile-specific incomplete handshake behaviors; it is not
-an assertion that all browser behavior is implemented. The engine currently
-supports HTTPS with HTTP/2, without HTTP/1 fallback, redirects, decompression,
-streaming response delivery, or a browser certificate-selection retry mechanism.
+an assertion that all browser behavior is implemented. The engine supports HTTP/2,
+HTTP/1.1 with ALPN fallback, and automatic gzip, deflate (zlib or raw), Brotli,
+and Zstandard decoding. It does not follow redirects or stream response delivery,
+or implement a browser certificate-selection retry mechanism. Unknown content
+codings and corrupt compressed bodies fail explicitly; use
+`disable_content_decoding` to inspect original encoded bytes. New optional fields
+require an updated engine; old ABI 1 builds reject them rather than ignoring them.
 
 `ruts_profile_import(json, length, allow_opaque)` converts a Peet capture into a
 native profile object and returns that object directly as JSON, with handle zero.
@@ -116,9 +123,10 @@ Headers are ordered occurrences, never a map. An empty `headers_order` preserves
 their exact input order. A name listed once groups its occurrences in original
 order. Repeated names schedule individual occurrences, and their count must match
 the supplied header occurrences. Absent names are ignored; unlisted headers
-follow in their original relative order. Names must be lowercase regular header
-names. Pseudo-header order belongs to the immutable profile. See the Go API for
-HTTP/2 field validation constraints.
+follow in their original relative order. Matching is case-insensitive. HTTP/1.1
+preserves supplied field name spelling; HTTP/2 lowercases names on the wire.
+Pseudo-header order belongs to the immutable profile. See the Go API for each
+protocol's field validation constraints.
 
 Accepted submit returns immediately with a new request handle and no payload.
 JSON-level errors can fail submission immediately; semantic request errors such
@@ -140,15 +148,17 @@ A successful completion has `handle = request_id` and JSON:
   "status_code":200,
   "headers":[{"name":"set-cookie","value":"a=1"},{"name":"set-cookie","value":"b=2"}],
   "protocol":"HTTP/2.0",
-  "body_size":123
+  "body_size":123,
+  "decoded":true
 }
 ```
 
-`ruts_request_body(request_id)` returns a fresh raw body copy after completion,
+`ruts_request_body(request_id)` returns a fresh body byte copy after completion,
 with the same request handle. Calling before completion returns code 3. Failed
 requests return their original error. Reading or polling does not release the
 request handle. Response bodies are currently fully buffered subject to the
-response limit.
+response limit. `decoded` indicates that a content coding was removed; original
+Content-Encoding and Content-Length fields remain available in `headers`.
 
 Outstanding handles, including completed but unreleased results, are bounded by
 `max_concurrent_requests + max_pending_requests`. Submit returns code 5 when that

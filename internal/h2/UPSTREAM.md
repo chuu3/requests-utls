@@ -17,19 +17,31 @@ Local modifications are intentionally concentrated:
 - `transport.go`: immutable per-connection `WireProfile` snapshots, exact initial
   SETTINGS and WINDOW_UPDATE, receive-state initialization matching explicit
   settings (including zero), ordered request encoding, optional HEADERS priority,
-  raw final response-header capture, no automatic gzip in ordered mode.
+  raw final response-header capture, no automatic gzip in ordered mode. When an
+  exact profile permits push, PUSH_PROMISE field blocks are fully HPACK-decoded
+  and immediately declined with RST_STREAM CANCEL. Queued response HEADERS on
+  canceled push streams still update the shared HPACK table; queued DATA is
+  discarded while returning connection flow-control credit. A monotonic server
+  stream high-water mark avoids retaining a per-push state map. Malformed stream
+  identifiers and HPACK blocks retain their protocol/compression errors.
 - `ordered_headers.go`: copies an ordered regular field list into per-request
   context; validates every field and total peer limit before touching HPACK;
   preserves interleaved duplicates and HPACK Sensitive flags without cookie
   splitting or automatic headers. Pseudo-headers use upstream URL/authority/path
   validation and configured order. Request trailers are explicitly unsupported.
 - `wire_profile.go`: validation and protocol defaults for omitted settings.
-  ENABLE_PUSH=0 is mandatory because this upstream client does not support push.
+  ENABLE_PUSH may be absent (the protocol default is 1), 0, or 1; the SETTINGS
+  payload is never changed to disable push. The ordinary transport without a
+  custom profile continues advertising 0. Receiving PUSH_PROMISE when push was
+  explicitly disabled remains a connection protocol error.
   Unknown SETTINGS identifiers are emitted unchanged, as allowed by HTTP/2;
   this does not implement any future semantics attached to those identifiers.
 - `frame.go`: explicit zero MAX_HEADER_LIST_SIZE support; ability to emit an
   all-zero priority tuple; avoid uint32 overflow while checking encoded header
-  block size against a large decoded-header limit.
+  block size against a large decoded-header limit; enforce contiguous
+  PUSH_PROMISE/CONTINUATION blocks on the associated request stream. Promise
+  fields use the existing bounded metadata decoder, including header-list and
+  string limits, before the promised stream is rejected.
 - `transport_common.go`: expose `WireProfile`; default to at most three ordered
   request retries, with an explicit `MaxUnprocessedRetries` bound (-1 disables,
   maximum 32), only after unprocessed-request evidence: an unusable connection
@@ -47,8 +59,12 @@ Local modifications are intentionally concentrated:
 - Imports of upstream internal `httpcommon` and `httpsfv` point at local copies.
 
 Limits: full browser HPACK policy, arbitrary initial PRIORITY frames, ordered
-request/response trailers, server push, extended CONNECT in ordered mode, HTTP/1,
-and HTTP/3 are not implemented by these additions. Advertised limits on response
+request/response trailers, application-visible server push, extended CONNECT in
+ordered mode, and HTTP/3 are not implemented by these additions. The root engine
+implements HTTP/1 separately. Permitted pushes are declined according to
+[RFC 9113 section 8.4.2](https://www.rfc-editor.org/rfc/rfc9113.html#section-8.4.2);
+their bodies, response headers, and cookies are never exposed or cached.
+Advertised limits on response
 headers are enforced; when no MAX_HEADER_LIST_SIZE is advertised, a local
 response header resource limit still applies. Explicit zero stream windows are
 faithfully applied and will prevent receiving response DATA until window credit

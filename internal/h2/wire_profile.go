@@ -28,7 +28,6 @@ func (p *WireProfile) Validate() error {
 		return fmt.Errorf("http2: connection window update exceeds the 31-bit receive window")
 	}
 	seen := make(map[SettingID]bool, len(p.Settings))
-	pushDisabled := false
 	for i, s := range p.Settings {
 		if seen[s.ID] {
 			return fmt.Errorf("http2: settings[%d]: duplicate setting %d", i, s.ID)
@@ -37,19 +36,10 @@ func (p *WireProfile) Validate() error {
 		if err := s.Valid(); err != nil {
 			return fmt.Errorf("http2: settings[%d] (%s): %w", i, s.ID, err)
 		}
-		if s.ID == SettingEnablePush {
-			if s.Val != 0 {
-				return fmt.Errorf("http2: server push is unsupported; ENABLE_PUSH must be 0")
-			}
-			pushDisabled = true
-		}
 		// SETTINGS_NO_RFC7540_PRIORITIES (RFC 9218).
 		if s.ID == SettingNoRFC7540Priorities && s.Val > 1 {
 			return fmt.Errorf("http2: settings[%d]: NO_RFC7540_PRIORITIES must be 0 or 1", i)
 		}
-	}
-	if !pushDisabled {
-		return fmt.Errorf("http2: wire profile must explicitly send ENABLE_PUSH=0; server push is unsupported")
 	}
 	if len(p.PseudoHeaderOrder) != 0 {
 		want := map[string]bool{":method": false, ":authority": false, ":scheme": false, ":path": false}

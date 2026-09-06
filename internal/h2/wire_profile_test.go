@@ -206,8 +206,7 @@ func TestWireProfileOmittedSettingsUseProtocolDefaults(t *testing.T) {
 
 func TestWireProfileValidation(t *testing.T) {
 	bad := []*WireProfile{
-		{},
-		{Settings: []Setting{{SettingEnablePush, 1}}},
+		{Settings: []Setting{{SettingEnablePush, 2}}},
 		{Settings: []Setting{{SettingEnablePush, 0}, {SettingEnablePush, 0}}},
 		{Settings: []Setting{{SettingEnablePush, 0}, {SettingInitialWindowSize, 1 << 31}}},
 		{Settings: []Setting{{SettingEnablePush, 0}, {SettingMaxFrameSize, 1}}},
@@ -273,7 +272,7 @@ func TestOrderedRequestsOnlyRetryProvenUnprocessed(t *testing.T) {
 
 func TestWireProfileRejectsBeforeWritingConnection(t *testing.T) {
 	conn := newWireRecordingConn()
-	_, err := (&Transport{WireProfile: &WireProfile{}}).NewClientConn(conn)
+	_, err := (&Transport{WireProfile: &WireProfile{Settings: []Setting{{SettingEnablePush, 2}}}}).NewClientConn(conn)
 	if err == nil || len(conn.snapshot()) != 0 {
 		t.Fatalf("invalid profile wrote connection bytes or succeeded: %v", err)
 	}

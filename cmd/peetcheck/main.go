@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	requests "requests-utls"
-	"requests-utls/profile"
+	requests "github.com/chuu3/requests-utls"
+	"github.com/chuu3/requests-utls/profile"
 )
 
 type reference struct {
@@ -123,7 +123,9 @@ func run() error {
 	if payload == "" {
 		return errors.New("probe expects profile with51764 payload")
 	}
-	s, err := requests.NewSession(requests.Options{Profile: p, ProxyURL: *proxy, MaxConcurrentRequests: *c, MaxUnprocessedRetries: *retries})
+	// This checker compares every handshake to one cold-connection fingerprint.
+	// Resumption is checked separately because a real PSK adds extension 41.
+	s, err := requests.NewSession(requests.Options{Profile: p, ProxyURL: *proxy, MaxConcurrentRequests: *c, MaxUnprocessedRetries: *retries, DisableSessionResumption: true})
 	if err != nil {
 		return err
 	}

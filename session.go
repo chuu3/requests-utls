@@ -22,8 +22,8 @@ import (
 	"golang.org/x/net/http/httpguts"
 	"golang.org/x/net/http2/hpack"
 
-	h2 "requests-utls/internal/h2"
-	"requests-utls/profile"
+	h2 "github.com/chuu3/requests-utls/internal/h2"
+	"github.com/chuu3/requests-utls/profile"
 )
 
 var (
@@ -66,15 +66,16 @@ type Response struct {
 
 // Options are snapshotted by NewSession. A Session's transport never changes.
 type Options struct {
-	Profile               *profile.Profile
-	ProxyURL              string     // Explicit http:// CONNECT proxy; empty means direct.
-	ProxyAuth             *ProxyAuth // Optional separate Basic credentials; cannot combine with URL userinfo.
-	RootCAs               *x509.CertPool
-	InsecureSkipVerify    bool
-	MaxConcurrentRequests int   // 0 means 64; includes body consumption.
-	MaxPendingRequests    int   // 0 means no waiting queue.
-	MaxResponseBytes      int64 // 0 means 32 MiB.
-	MaxUnprocessedRetries int   // 0 means 3; -1 disables; maximum 32. Only proven-unprocessed requests.
+	Profile                  *profile.Profile
+	ProxyURL                 string     // Explicit http:// CONNECT proxy; empty means direct.
+	ProxyAuth                *ProxyAuth // Optional separate Basic credentials; cannot combine with URL userinfo.
+	RootCAs                  *x509.CertPool
+	InsecureSkipVerify       bool
+	DisableSessionResumption bool  // Default false: cache TLS tickets within this Session.
+	MaxConcurrentRequests    int   // 0 means 64; includes body consumption.
+	MaxPendingRequests       int   // 0 means no waiting queue.
+	MaxResponseBytes         int64 // 0 means 32 MiB.
+	MaxUnprocessedRetries    int   // 0 means 3; -1 disables; maximum 32. Only proven-unprocessed requests.
 }
 
 // ProxyAuth is snapshotted when the Session is created. Credentials are sent
@@ -87,21 +88,22 @@ type ProxyAuth struct {
 // Session is safe for concurrent Do and Close calls. Create another Session to
 // change the profile or trust configuration; connections cannot cross Sessions.
 type Session struct {
-	profile     *profile.Profile
-	roots       *x509.CertPool
-	insecure    bool
-	proxyURL    *url.URL
-	transport   *h2.Transport
-	maxResponse int64
-	slots       chan struct{}
-	running     chan struct{}
-	ctx         context.Context
-	cancel      context.CancelFunc
-	mu          sync.Mutex
-	closed      bool
-	connections map[*trackedConn]struct{}
-	requests    sync.WaitGroup
-	closeDone   chan struct{}
+	profile      *profile.Profile
+	roots        *x509.CertPool
+	insecure     bool
+	proxyURL     *url.URL
+	transport    *h2.Transport
+	maxResponse  int64
+	sessionCache *sessionTicketCache
+	slots        chan struct{}
+	running      chan struct{}
+	ctx          context.Context
+	cancel       context.CancelFunc
+	mu           sync.Mutex
+	closed       bool
+	connections  map[*trackedConn]struct{}
+	requests     sync.WaitGroup
+	closeDone    chan struct{}
 }
 
 func NewSession(o Options) (*Session, error) {
@@ -166,6 +168,9 @@ func NewSession(o Options) (*Session, error) {
 	}
 	if o.RootCAs != nil {
 		s.roots = o.RootCAs.Clone()
+	}
+	if !o.DisableSessionResumption {
+		s.sessionCache = &sessionTicketCache{cache: utls.NewLRUClientSessionCache(64)}
 	}
 	s.transport = &h2.Transport{
 		WireProfile:           wp,
@@ -314,6 +319,17 @@ func (s *Session) dialTLS(ctx context.Context, network, addr string, _ *tls.Conf
 	stop := context.AfterFunc(s.ctx, cancel)
 	defer cancel()
 	defer stop()
+	conn, retryWithoutTicket, err := s.dialTLSAttempt(dialCtx, network, addr, false)
+	if retryWithoutTicket && dialCtx.Err() == nil {
+		// This is a failed TLS handshake: no HTTP request has been sent. uTLS
+		// cannot rebuild a PSK binder after HelloRetryRequest. Retry exactly
+		// once with a full handshake and the original, remaining deadline.
+		conn, _, err = s.dialTLSAttempt(dialCtx, network, addr, true)
+	}
+	return conn, err
+}
+
+func (s *Session) dialTLSAttempt(dialCtx context.Context, network, addr string, skipCachedTicket bool) (net.Conn, bool, error) {
 	var conn net.Conn
 	var err error
 	if s.proxyURL != nil {
@@ -322,40 +338,43 @@ func (s *Session) dialTLS(ctx context.Context, network, addr string, _ *tls.Conf
 		conn, err = (&net.Dialer{}).DialContext(dialCtx, network, addr)
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	tc := &trackedConn{Conn: conn, session: s}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		conn.Close()
-		return nil, ErrSessionClosed
+		return nil, false, ErrSessionClosed
 	}
 	s.connections[tc] = struct{}{}
 	s.mu.Unlock()
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		tc.Close()
-		return nil, err
+		return nil, false, err
 	}
 	spec, err := s.profile.NewClientHelloSpec()
 	if err != nil {
 		tc.Close()
-		return nil, err
+		return nil, false, err
 	}
-	uconn := utls.UClient(tc, &utls.Config{ServerName: host, RootCAs: s.roots, InsecureSkipVerify: s.insecure, SessionTicketsDisabled: true}, utls.HelloCustom)
+	config := &utls.Config{ServerName: host, RootCAs: s.roots, InsecureSkipVerify: s.insecure, SessionTicketsDisabled: true}
+	configureResumption(config, spec, s.sessionCache, addr, skipCachedTicket)
+	uconn := utls.UClient(tc, config, utls.HelloCustom)
 	if err = uconn.ApplyPreset(spec); err == nil {
 		err = uconn.HandshakeContext(dialCtx)
 	}
 	if err != nil {
 		tc.Close()
-		return nil, fmt.Errorf("requests-utls: TLS handshake: %w", err)
+		retry := !skipCachedTicket && config.ClientSessionCache != nil && err.Error() == utlsPSKHelloRetryError
+		return nil, retry, fmt.Errorf("requests-utls: TLS handshake: %w", err)
 	}
 	if uconn.ConnectionState().NegotiatedProtocol != "h2" {
 		tc.Close()
-		return nil, errors.New("requests-utls: server did not negotiate h2; HTTP/1.1 fallback is not implemented")
+		return nil, false, errors.New("requests-utls: server did not negotiate h2; HTTP/1.1 fallback is not implemented")
 	}
-	return uconn, nil
+	return uconn, false, nil
 }
 
 // Close cancels all admitted requests, closes active/idle connections and waits
@@ -379,6 +398,9 @@ func (s *Session) Close() error {
 	}
 	s.requests.Wait()
 	s.transport.CloseIdleConnections()
+	if s.sessionCache != nil {
+		s.sessionCache.close()
+	}
 	close(s.closeDone)
 	return nil
 }

@@ -18,9 +18,14 @@ tests include:
   exact input order, grouped repeats and explicitly interleaved occurrences.
 - Exercise native ABI 1 input copying, bounded handles and retained bodies,
   cancellation/deadlines, completion polling and concurrent close/release under
-  the race detector. The independent Python client passed 33 tests against the
+  the race detector. The independent Python client passed 55 tests against the
   real shared library, including a fresh wheel installation outside either
   source checkout and 32 simultaneous streams per sync/async API.
+- Verify default TLS session resumption against real TLS servers: new connection,
+  server `DidResume=true`, PSK extension last, unchanged cold ClientHello, TLS 1.2
+  tickets, rejected tickets, Session/port isolation, concurrent cache close and
+  16 concurrent resumed connections. Exercise the exact PSK+HelloRetryRequest
+  pre-HTTP full-handshake fallback; certificate failures are not retried.
 - Cancel one stream while a sibling continues; close active Sessions, exhaust
   queues, cancel queued work and verify admission capacity is recovered.
 - Exercise HTTP CONNECT and both URL/separate Basic credentials; origin sees no

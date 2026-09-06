@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"golang.org/x/net/http2/hpack"
-	"requests-utls/internal/testserver"
+	"github.com/chuu3/requests-utls/internal/testserver"
 )
 
 type barrier struct {
@@ -109,8 +109,12 @@ func run() error {
 			BodyBase64 string      `json:"body_base64"`
 			Connection int         `json:"connection"`
 			StreamID   uint32      `json:"stream_id"`
-		}{headers, base64.StdEncoding.EncodeToString(request.Body), request.Connection, request.StreamID})
-		return testserver.Response{Body: body, Headers: []hpack.HeaderField{
+			DidResume  bool        `json:"tls_did_resume"`
+		}{
+			Headers: headers, BodyBase64: base64.StdEncoding.EncodeToString(request.Body),
+			Connection: request.Connection, StreamID: request.StreamID, DidResume: request.DidResume,
+		})
+		return testserver.Response{Body: body, GoAway: path.Path == "/reconnect", Headers: []hpack.HeaderField{
 			{Name: "content-type", Value: "application/json"},
 			{Name: "set-cookie", Value: "peer_first=one; Path=/"},
 			{Name: "x-peer", Value: "between"},

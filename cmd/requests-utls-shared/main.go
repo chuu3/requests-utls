@@ -14,7 +14,7 @@ import (
 	"errors"
 	"unsafe"
 
-	"requests-utls/native"
+	"github.com/chuu3/requests-utls/native"
 )
 
 var registry = native.NewRegistry()

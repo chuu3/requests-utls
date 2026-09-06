@@ -4,10 +4,9 @@ A Go engine prototype for a separate Python requests-style client: immutable TLS
 concurrent Sessions, and HTTP/2 header lists that retain interleaved duplicates.
 
 This repository contains the **Go engine** and its versioned C ABI. The Python
-client is maintained in the separate `requests-utls-python` project and imports
+client is maintained in the separate [requests-utls-python](https://github.com/chuu3/requests-utls-python) project and imports
 as `requests_utls`; no Go source is copied into the Python repository.
-The module path is temporarily `requests-utls`; change it to the actual GitHub
-repository path when the remote is available.
+The Go module path is `github.com/chuu3/requests-utls`.
 
 The [verification report](docs/verification.md) records local race/wire tests and
 authenticated HTTP CONNECT proxy tests against tls.peet.ws, including both the earlier
@@ -39,10 +38,6 @@ go build -o bin/requests-utls ./cmd/requests-utls
 ```
 
 Equivalent: `make check`. Set `GO=/path/to/go` if Go is not on PATH.
-
-On the development machine used to create this repository, a checksum-verified
-toolchain is installed at `/Users/luca/.local/share/requests-utls/go/bin/go`.
-No shell configuration was changed.
 
 To build a shared library for another language:
 
@@ -116,6 +111,33 @@ There is no `mount`, adapters registry, mutable Session default-header map, shar
 header-order slice, or automatic cookie jar. Set `cookie` per request when needed.
 Received Set-Cookie fields are returned, never silently sent by a later request.
 Separate Sessions never share connections, profile state or cookies.
+
+### Connection reuse and TLS session resumption
+
+A Session reuses a healthy HTTP/2 connection by default. Sequential requests on
+that connection do not create another ClientHello. If the peer sends GOAWAY,
+closes the connection, or the connection expires, the next request needs a new
+connection.
+
+TLS resumption is also enabled by default. Each Session has a bounded 64-entry
+ticket cache separated by destination host and port. For a TLS 1.3 profile that
+already offers `psk_key_exchange_modes=1`, a reconnect can use a real server
+ticket to append `pre_shared_key` (41) as the last extension. uTLS computes fresh
+identities and binders; captured PSK bytes are never replayed. With no usable
+ticket, the first-handshake extension list stays unchanged. TLS 1.2 ticket
+resumption requires the profile's `session_ticket` extension.
+
+The server may decline resumption or never issue a usable ticket. A resumed
+ClientHello has a different fingerprint from a cold handshake. Set
+`Options.DisableSessionResumption: true` to keep every new connection cold;
+this does not disable HTTP/2 connection reuse. Tickets are discarded on Close.
+No 0-RTT HTTP requests are sent.
+
+uTLS v1.8.2 cannot recalculate a custom PSK ClientHello after HelloRetryRequest.
+For that exact error, before any HTTP request bytes are sent, the engine retries
+one full TLS handshake on a new connection within the same remaining dial
+deadline. Other handshake errors do not trigger this fallback.
+
 Use `Options.ProxyURL` to choose an HTTP CONNECT proxy; it is fixed for the
 Session, so changing proxies cannot reuse an old tunnel. Proxy environment
 variables are intentionally not read implicitly. HTTPS proxies and SOCKS are not
@@ -190,7 +212,9 @@ go run ./cmd/peetcheck -proxy-env REQUESTS_UTLS_TEST_PROXY -n 8 -c 4
 
 It checks HTTP status, extension 51764's full payload, JA3, JA4, Peetprint,
 HTTP/2 fingerprint, and the complete ordered regular-header list. It prints a
-sanitized JSON report; ordinary `go test` uses only local servers.
+sanitized JSON report; ordinary `go test` uses only local servers. This checker
+explicitly disables TLS resumption to compare every connection with the same
+cold-handshake baseline. Resumption is verified separately.
 
 The test endpoint was observed to send GOAWAY after a response. Under parallel
 load this leaves other streams explicitly unprocessed. `peetcheck` therefore
@@ -225,8 +249,8 @@ uTLS provides the raw extension mechanism in
 [u_tls_extensions.go](https://github.com/refraction-networking/utls/blob/v1.8.2/u_tls_extensions.go).
 
 These are capability limits, not missing extension IDs on the wire. A matching
-JA3/JA4 alone is not proof of full browser equivalence. Session resumption is
-disabled; key shares, TLS random and GREASE/ECH material are generated per
+JA3/JA4 alone is not proof of full browser equivalence. Key shares, TLS random
+and GREASE/ECH material are generated per
 connection. There is no promise of identical ciphertext, TCP/IP behavior, HPACK
 bytes, all later frame scheduling, or full Chrome network-stack behavior.
 

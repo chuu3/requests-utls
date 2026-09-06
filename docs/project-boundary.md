@@ -4,6 +4,9 @@
 proxy tunneling and native ABI. `requests-utls-python` owns the Python API,
 packaging and its CFFI client. Both are independent Git repositories.
 
+- Go: <https://github.com/chuu3/requests-utls>
+- Python: <https://github.com/chuu3/requests-utls-python>
+
 The source dependency points in one direction: the native entry point imports
 the Go engine. Python imports no Go modules and does not compile Go source during
 installation. At runtime Python loads an ABI-compatible shared library by explicit
@@ -37,6 +40,10 @@ correct platform tag and licenses.
   profile support and reports unsupported capabilities to Python.
 - Request metadata includes request-local `headers_order`. Profile objects and
   Session transport configuration do not change while requests run.
+- Session creation accepts `disable_session_resumption`. Python enables
+  resumption by default and requires an engine build supporting this field; older engines
+  fail on the unknown field. TLS tickets are private mutable protocol state in
+  a bounded, concurrent Session cache; they do not modify the supplied profile.
 - Profile JSON and request metadata cross the boundary as copied UTF-8 bytes;
   request and response bodies use separate binary buffers, not base64 JSON.
 - Go schedules requests. Each Python Session uses one completion-dispatch thread;

@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"golang.org/x/net/http2/hpack"
-	"requests-utls/internal/testserver"
+	"github.com/chuu3/requests-utls/internal/testserver"
 )
 
 func TestRequestHeadersOrder(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"requests-utls/internal/testserver"
+	"github.com/chuu3/requests-utls/internal/testserver"
 )
 
 func localProxy(t *testing.T, handler func(net.Conn)) string {

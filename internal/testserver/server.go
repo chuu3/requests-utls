@@ -24,6 +24,7 @@ import (
 
 type Request struct {
 	Connection int
+	DidResume  bool
 	StreamID   uint32
 	Headers    []hpack.HeaderField
 	Body       []byte
@@ -42,6 +43,9 @@ type Response struct {
 	Status  string
 	Headers []hpack.HeaderField
 	Body    []byte
+	// GoAway retires this connection before completing the response. Use this
+	// only with one active stream when a test needs a deterministic reconnect.
+	GoAway bool
 }
 
 type Handler func(context.Context, Request) Response
@@ -202,10 +206,11 @@ func (s *Server) serve(raw net.Conn, connection int) {
 	if err := conn.HandshakeContext(ctx); err != nil {
 		return
 	}
+	state := conn.ConnectionState()
 	s.mu.Lock()
 	s.snapshot.ClientHellos = append(s.snapshot.ClientHellos, append([]byte(nil), captured.bytes...))
 	s.mu.Unlock()
-	if conn.ConnectionState().NegotiatedProtocol != "h2" {
+	if state.NegotiatedProtocol != "h2" {
 		return
 	}
 	preface := make([]byte, len(http2.ClientPreface))
@@ -250,6 +255,14 @@ func (s *Server) serve(raw net.Conn, connection int) {
 			}
 			writeMu.Lock()
 			defer writeMu.Unlock()
+			if response.GoAway {
+				// The client must observe retirement before END_STREAM makes
+				// this request complete and permits the next sequential request.
+				if err := framer.WriteGoAway(req.StreamID, http2.ErrCodeNo, nil); err != nil {
+					return
+				}
+				defer raw.Close()
+			}
 			buffer.Reset()
 			encoder.WriteField(hpack.HeaderField{Name: ":status", Value: response.Status})
 			for _, field := range response.Headers {
@@ -306,7 +319,7 @@ func (s *Server) serve(raw net.Conn, connection int) {
 				s.snapshot.HeaderPriorities = append(s.snapshot.HeaderPriorities, Priority{StreamID: frame.Header().StreamID, Param: frame.Priority})
 				s.mu.Unlock()
 			}
-			req := &Request{Connection: connection, StreamID: frame.Header().StreamID, Headers: append([]hpack.HeaderField(nil), frame.Fields...)}
+			req := &Request{Connection: connection, DidResume: state.DidResume, StreamID: frame.Header().StreamID, Headers: append([]hpack.HeaderField(nil), frame.Fields...)}
 			streams[req.StreamID] = req
 			if frame.StreamEnded() {
 				dispatch(*req)

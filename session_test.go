@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"requests-utls/internal/testserver"
-	"requests-utls/profile"
+	"github.com/chuu3/requests-utls/internal/testserver"
+	"github.com/chuu3/requests-utls/profile"
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"

@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	requests "requests-utls"
-	"requests-utls/profile"
+	requests "github.com/chuu3/requests-utls"
+	"github.com/chuu3/requests-utls/profile"
 )
 
 func main() {

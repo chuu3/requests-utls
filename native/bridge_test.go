@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	requestsutls "requests-utls"
-	"requests-utls/internal/testserver"
+	requestsutls "github.com/chuu3/requests-utls"
+	"github.com/chuu3/requests-utls/internal/testserver"
 
 	"golang.org/x/net/http2/hpack"
 )

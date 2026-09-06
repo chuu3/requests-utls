@@ -53,6 +53,7 @@ fields, including unknown nested configuration fields, are rejected.
 | `proxy_auth` | Optional `{ "username": "...", "password": "..." }`; cannot coexist with URL credentials |
 | `ca_pem` | Optional PEM CA bundle used as the complete trust store; empty uses system trust |
 | `insecure_skip_verify` | Default false |
+| `disable_session_resumption` | Default false; true disables TLS ticket/PSK reuse, independently of HTTP/2 connection pooling |
 | `max_concurrent_requests` | Default 64 when zero/omitted |
 | `max_pending_requests` | Default 0; extra admitted requests allowed to wait |
 | `max_response_bytes` | Default 32 MiB when zero/omitted |
@@ -61,6 +62,13 @@ fields, including unknown nested configuration fields, are rejected.
 Proxy authentication goes only to the CONNECT proxy. Session transport and
 profile settings are immutable. There is no shared mutable default header list
 or cookie jar in this layer; a higher-level client can supply request snapshots.
+
+Tickets are held in a bounded cache per Session and separated by destination
+host and port. A reconnect can offer a real ticket-derived PSK (extension 41);
+the initial handshake keeps the supplied profile's extension sequence. Reusing
+an existing HTTP/2 connection performs no additional handshake. This optional
+configuration field requires an engine build that implements session resumption;
+older ABI 1 engines reject the unknown field rather than silently ignore it.
 
 Success returns `handle = session_id` and JSON:
 

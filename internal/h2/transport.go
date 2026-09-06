@@ -32,7 +32,7 @@ import (
 
 	"golang.org/x/net/http/httpguts"
 	"golang.org/x/net/http2/hpack"
-	"requests-utls/internal/h2/internal/httpcommon"
+	"github.com/chuu3/requests-utls/internal/h2/internal/httpcommon"
 )
 
 const (

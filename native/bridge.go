@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	requestsutls "requests-utls"
-	"requests-utls/profile"
+	requestsutls "github.com/chuu3/requests-utls"
+	"github.com/chuu3/requests-utls/profile"
 )
 
 const ABIVersion = 1
@@ -53,15 +53,16 @@ func Error(code int32, message string) Result {
 }
 
 type sessionConfig struct {
-	Profile               json.RawMessage `json:"profile"`
-	ProxyURL              string          `json:"proxy_url"`
-	ProxyAuth             *proxyAuth      `json:"proxy_auth"`
-	CAPEM                 string          `json:"ca_pem"`
-	InsecureSkipVerify    bool            `json:"insecure_skip_verify"`
-	MaxConcurrentRequests int             `json:"max_concurrent_requests"`
-	MaxPendingRequests    int             `json:"max_pending_requests"`
-	MaxResponseBytes      int64           `json:"max_response_bytes"`
-	MaxUnprocessedRetries int             `json:"max_unprocessed_retries"`
+	Profile                  json.RawMessage `json:"profile"`
+	ProxyURL                 string          `json:"proxy_url"`
+	ProxyAuth                *proxyAuth      `json:"proxy_auth"`
+	CAPEM                    string          `json:"ca_pem"`
+	InsecureSkipVerify       bool            `json:"insecure_skip_verify"`
+	DisableSessionResumption bool            `json:"disable_session_resumption"`
+	MaxConcurrentRequests    int             `json:"max_concurrent_requests"`
+	MaxPendingRequests       int             `json:"max_pending_requests"`
+	MaxResponseBytes         int64           `json:"max_response_bytes"`
+	MaxUnprocessedRetries    int             `json:"max_unprocessed_retries"`
 }
 
 type proxyAuth struct {
@@ -156,7 +157,8 @@ func (r *Registry) SessionCreate(data []byte) Result {
 	}
 	options := requestsutls.Options{
 		Profile: p, ProxyURL: config.ProxyURL, InsecureSkipVerify: config.InsecureSkipVerify,
-		MaxConcurrentRequests: config.MaxConcurrentRequests, MaxPendingRequests: config.MaxPendingRequests,
+		DisableSessionResumption: config.DisableSessionResumption,
+		MaxConcurrentRequests:    config.MaxConcurrentRequests, MaxPendingRequests: config.MaxPendingRequests,
 		MaxResponseBytes: config.MaxResponseBytes, MaxUnprocessedRetries: config.MaxUnprocessedRetries,
 	}
 	if config.ProxyAuth != nil {

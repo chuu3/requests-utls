@@ -1,4 +1,4 @@
-module requests-utls
+module github.com/chuu3/requests-utls
 
 go 1.25.0
 

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -9,6 +10,14 @@ import pack_native
 
 
 class NativePackagingTests(unittest.TestCase):
+    def test_go_json_is_utf8_even_when_windows_uses_an_ansi_locale(self):
+        expected = '{"Doc": "header “cookie” and 请求"}\n'
+        program = "import sys; sys.stdout.buffer.write(bytes.fromhex(" + repr(expected.encode().hex()) + "))"
+        # Simulate Windows' cp1252 default. The curly closing quote contains
+        # byte 0x9d in UTF-8, which that codec cannot decode at all.
+        with patch("subprocess._text_encoding", return_value="cp1252"):
+            self.assertEqual(pack_native.run(sys.executable, "-c", program), expected)
+
     def test_architecture_and_os_cannot_be_relabelled(self):
         with self.assertRaises(ValueError):
             pack_native.validate_platform("linux", "arm64", "linux_x86_64")

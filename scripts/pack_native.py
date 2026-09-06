@@ -25,7 +25,8 @@ LICENSE_NAME = re.compile(r"^(?:licen[sc]e|notice|copying|patents)(?:[._-].*)?$"
 
 def run(*args: str, env: dict[str, str] | None = None) -> str:
     return subprocess.run(
-        args, cwd=ROOT, env=env, check=True, text=True, stdout=subprocess.PIPE
+        args, cwd=ROOT, env=env, check=True, text=True, encoding="utf-8",
+        stdout=subprocess.PIPE,
     ).stdout
 
 

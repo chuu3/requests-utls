@@ -1,0 +1,497 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://requests-utls.local/profile.schema.json",
+  "title": "requests-utls wire profile v1",
+  "description": "Structural validation. profile.Load additionally checks supported algorithms, extension-specific fields, TLS consistency and HTTP/2 ranges.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tls": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min_version": {
+          "enum": [
+            771,
+            772
+          ]
+        },
+        "max_version": {
+          "enum": [
+            771,
+            772
+          ]
+        },
+        "cipher_suites": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "minItems": 1,
+          "maxItems": 32767
+        },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "server_name"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "status_request"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "session_ticket"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "sct"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "extended_master_secret"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "renegotiation_info"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "grease"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "supported_groups"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 65535
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "type",
+                  "values"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "ec_point_formats"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 65535
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "type",
+                  "values"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "signature_algorithms"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 65535
+                    },
+                    "minItems": 1
+                  },
+                  "allow_unsupported": {
+                    "type": "boolean",
+                    "description": "Explicit advertisement-only opt-in for signature schemes not implemented by uTLS."
+                  }
+                },
+                "required": [
+                  "type",
+                  "values"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "compress_certificate"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 65535
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "type",
+                  "values"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "supported_versions"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 65535
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "type",
+                  "values"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "psk_key_exchange_modes"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 65535
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "type",
+                  "values"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "key_share"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 65535
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "type",
+                  "values"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "alpn"
+                  },
+                  "protocols": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 255
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "type",
+                  "protocols"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "application_settings"
+                  },
+                  "protocols": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 255
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "type",
+                  "protocols"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "application_settings_new"
+                  },
+                  "protocols": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 255
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "type",
+                  "protocols"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "grease_ech"
+                  },
+                  "payload_lengths": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65000
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "const": "raw"
+                  },
+                  "id": {
+                    "const": 51764
+                  },
+                  "data_hex": {
+                    "type": "string",
+                    "pattern": "^(?:[0-9a-fA-F]{2})*$"
+                  },
+                  "allow_opaque": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "type",
+                  "id",
+                  "data_hex",
+                  "allow_opaque"
+                ]
+              }
+            ]
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "min_version",
+        "max_version",
+        "cipher_suites",
+        "extensions"
+      ]
+    },
+    "http2": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "settings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              }
+            },
+            "required": [
+              "id",
+              "value"
+            ]
+          }
+        },
+        "connection_window_update": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147418112
+        },
+        "pseudo_header_order": {
+          "type": "array",
+          "items": {
+            "enum": [
+              ":method",
+              ":authority",
+              ":scheme",
+              ":path"
+            ]
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true
+        },
+        "header_priority": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stream_dep": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "exclusive": {
+              "type": "boolean"
+            },
+            "weight": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256
+            }
+          },
+          "required": [
+            "stream_dep",
+            "exclusive",
+            "weight"
+          ]
+        }
+      },
+      "required": []
+    }
+  },
+  "required": [
+    "schema_version",
+    "name",
+    "tls"
+  ]
+}

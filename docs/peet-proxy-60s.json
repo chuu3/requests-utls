@@ -1,0 +1,204 @@
+{
+  "concurrency": 4,
+  "endpoint": "https://tls.peet.ws/api/all",
+  "limitations": [
+    "TLS trust_anchors extension 51764 uses an explicitly opted-in static capture payload; Trust Anchor IDs certificate selection/retry behavior and dynamic anchor state are not implemented.",
+    "Signature scheme 0x0904 is advertised only; uTLS v1.8.2 cannot verify it if selected by the server.",
+    "Signature scheme 0x0905 is advertised only; uTLS v1.8.2 cannot verify it if selected by the server.",
+    "Signature scheme 0x0906 is advertised only; uTLS v1.8.2 cannot verify it if selected by the server.",
+    "ALPS negotiation is delegated to uTLS; this prototype does not apply peer HTTP/2 application settings or configure custom client ALPS payloads."
+  ],
+  "max_unprocessed_retries": 8,
+  "passed": 8,
+  "profile_hash": "7ba49c373e6db7ba52f5dc6c65b9f75445219b64a682241b1152c8a5ca13be45",
+  "proxy_used": true,
+  "recorded_at_utc": "2026-09-06T09:26:45Z",
+  "requests": 8,
+  "results": [
+    {
+      "id": 0,
+      "elapsed_ms": 12988,
+      "status": 200,
+      "protocol": "HTTP/2.0",
+      "fingerprint": {
+        "ja3": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,51764-35-51-0-65281-13-5-65037-11-43-17613-10-23-27-16-18-45,4588-29-23-24,0",
+        "ja3_hash": "36b4aa19269d847d0680175adbf9b96f",
+        "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+        "peetprint_hash": "fc97c1cdfb1409c9a9326c1b726d1dee",
+        "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+      },
+      "checks": {
+        "extension_51764_payload": true,
+        "http2_fingerprint": true,
+        "http_200_h2": true,
+        "ja3": true,
+        "ja3_hash": true,
+        "ja4": true,
+        "ordered_duplicates_and_cookie_isolation": true,
+        "peetprint_hash": true
+      }
+    },
+    {
+      "id": 1,
+      "elapsed_ms": 41089,
+      "status": 200,
+      "protocol": "HTTP/2.0",
+      "fingerprint": {
+        "ja3": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,51764-35-51-0-65281-13-5-65037-11-43-17613-10-23-27-16-18-45,4588-29-23-24,0",
+        "ja3_hash": "36b4aa19269d847d0680175adbf9b96f",
+        "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+        "peetprint_hash": "fc97c1cdfb1409c9a9326c1b726d1dee",
+        "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+      },
+      "checks": {
+        "extension_51764_payload": true,
+        "http2_fingerprint": true,
+        "http_200_h2": true,
+        "ja3": true,
+        "ja3_hash": true,
+        "ja4": true,
+        "ordered_duplicates_and_cookie_isolation": true,
+        "peetprint_hash": true
+      }
+    },
+    {
+      "id": 2,
+      "elapsed_ms": 18384,
+      "status": 200,
+      "protocol": "HTTP/2.0",
+      "fingerprint": {
+        "ja3": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,51764-35-51-0-65281-13-5-65037-11-43-17613-10-23-27-16-18-45,4588-29-23-24,0",
+        "ja3_hash": "36b4aa19269d847d0680175adbf9b96f",
+        "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+        "peetprint_hash": "fc97c1cdfb1409c9a9326c1b726d1dee",
+        "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+      },
+      "checks": {
+        "extension_51764_payload": true,
+        "http2_fingerprint": true,
+        "http_200_h2": true,
+        "ja3": true,
+        "ja3_hash": true,
+        "ja4": true,
+        "ordered_duplicates_and_cookie_isolation": true,
+        "peetprint_hash": true
+      }
+    },
+    {
+      "id": 3,
+      "elapsed_ms": 48766,
+      "status": 200,
+      "protocol": "HTTP/2.0",
+      "fingerprint": {
+        "ja3": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,51764-35-51-0-65281-13-5-65037-11-43-17613-10-23-27-16-18-45,4588-29-23-24,0",
+        "ja3_hash": "36b4aa19269d847d0680175adbf9b96f",
+        "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+        "peetprint_hash": "fc97c1cdfb1409c9a9326c1b726d1dee",
+        "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+      },
+      "checks": {
+        "extension_51764_payload": true,
+        "http2_fingerprint": true,
+        "http_200_h2": true,
+        "ja3": true,
+        "ja3_hash": true,
+        "ja4": true,
+        "ordered_duplicates_and_cookie_isolation": true,
+        "peetprint_hash": true
+      }
+    },
+    {
+      "id": 4,
+      "elapsed_ms": 10440,
+      "status": 200,
+      "protocol": "HTTP/2.0",
+      "fingerprint": {
+        "ja3": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,51764-35-51-0-65281-13-5-65037-11-43-17613-10-23-27-16-18-45,4588-29-23-24,0",
+        "ja3_hash": "36b4aa19269d847d0680175adbf9b96f",
+        "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+        "peetprint_hash": "fc97c1cdfb1409c9a9326c1b726d1dee",
+        "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+      },
+      "checks": {
+        "extension_51764_payload": true,
+        "http2_fingerprint": true,
+        "http_200_h2": true,
+        "ja3": true,
+        "ja3_hash": true,
+        "ja4": true,
+        "ordered_duplicates_and_cookie_isolation": true,
+        "peetprint_hash": true
+      }
+    },
+    {
+      "id": 5,
+      "elapsed_ms": 7588,
+      "status": 200,
+      "protocol": "HTTP/2.0",
+      "fingerprint": {
+        "ja3": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,51764-35-51-0-65281-13-5-65037-11-43-17613-10-23-27-16-18-45,4588-29-23-24,0",
+        "ja3_hash": "36b4aa19269d847d0680175adbf9b96f",
+        "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+        "peetprint_hash": "fc97c1cdfb1409c9a9326c1b726d1dee",
+        "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+      },
+      "checks": {
+        "extension_51764_payload": true,
+        "http2_fingerprint": true,
+        "http_200_h2": true,
+        "ja3": true,
+        "ja3_hash": true,
+        "ja4": true,
+        "ordered_duplicates_and_cookie_isolation": true,
+        "peetprint_hash": true
+      }
+    },
+    {
+      "id": 6,
+      "elapsed_ms": 3770,
+      "status": 200,
+      "protocol": "HTTP/2.0",
+      "fingerprint": {
+        "ja3": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,51764-35-51-0-65281-13-5-65037-11-43-17613-10-23-27-16-18-45,4588-29-23-24,0",
+        "ja3_hash": "36b4aa19269d847d0680175adbf9b96f",
+        "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+        "peetprint_hash": "fc97c1cdfb1409c9a9326c1b726d1dee",
+        "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+      },
+      "checks": {
+        "extension_51764_payload": true,
+        "http2_fingerprint": true,
+        "http_200_h2": true,
+        "ja3": true,
+        "ja3_hash": true,
+        "ja4": true,
+        "ordered_duplicates_and_cookie_isolation": true,
+        "peetprint_hash": true
+      }
+    },
+    {
+      "id": 7,
+      "elapsed_ms": 6703,
+      "status": 200,
+      "protocol": "HTTP/2.0",
+      "fingerprint": {
+        "ja3": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,51764-35-51-0-65281-13-5-65037-11-43-17613-10-23-27-16-18-45,4588-29-23-24,0",
+        "ja3_hash": "36b4aa19269d847d0680175adbf9b96f",
+        "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+        "peetprint_hash": "fc97c1cdfb1409c9a9326c1b726d1dee",
+        "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+      },
+      "checks": {
+        "extension_51764_payload": true,
+        "http2_fingerprint": true,
+        "http_200_h2": true,
+        "ja3": true,
+        "ja3_hash": true,
+        "ja4": true,
+        "ordered_duplicates_and_cookie_isolation": true,
+        "peetprint_hash": true
+      }
+    }
+  ],
+  "timeout_ms": 60000
+}

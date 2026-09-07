@@ -120,13 +120,22 @@ end requests without a deadline; the engine also has its connection handshake
 deadline.
 
 Headers are ordered occurrences, never a map. An empty `headers_order` preserves
-their exact input order. A name listed once groups its occurrences in original
+their input order, with generated fields following them. A name listed once groups its occurrences in original
 order. Repeated names schedule individual occurrences, and their count must match
-the supplied header occurrences. Absent names are ignored; unlisted headers
+the supplied header occurrences. Generated fields participate in sorting even
+when absent from the input; other absent names are ignored. Unlisted headers
 follow in their original relative order. Matching is case-insensitive. HTTP/1.1
 preserves supplied field name spelling; HTTP/2 lowercases names on the wire.
 Pseudo-header order belongs to the immutable profile. See the Go API for each
 protocol's field validation constraints.
+
+Content-Length comes from the final body byte length, replacing a supplied
+single field's value while keeping its spelling and position. Duplicate
+Content-Length fields are rejected. Missing Content-Length is generated for
+nonempty bodies and POST/PUT/PATCH, including zero-length bodies, before ordering.
+HTTP/1.1 also generates a missing Host before ordering. The default HTTP/1.1
+connection persistence does not generate Connection; explicitly supplied
+Connection fields participate in ordering. HTTP/2 rejects these fields.
 
 Accepted submit returns immediately with a new request handle and no payload.
 JSON-level errors can fail submission immediately; semantic request errors such

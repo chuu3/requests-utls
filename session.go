@@ -48,7 +48,8 @@ type Request struct {
 	// groups all its values; repeated names specify each occurrence's position.
 	// For a present name, repeated entries must match its number of values.
 	// Absent names are ignored, unlisted fields follow in their original order,
-	// and an empty list preserves Headers exactly. HTTP/1 retains field casing;
+	// and an empty list preserves field order. Generated fields also participate.
+	// Content-Length is calculated from Body. HTTP/1 retains field casing;
 	// HTTP/2 lowercases wire names. Pseudo-header order is part of the profile.
 	HeadersOrder []string `json:"headers_order,omitempty"`
 	Body         []byte   `json:"body,omitempty"`
@@ -330,12 +331,19 @@ func (s *Session) requestError(ctx context.Context, err error) error {
 }
 
 func prepareRequest(ctx context.Context, in Request) (*http.Request, []hpack.HeaderField, error) {
-	headers, err := orderHeaders(in.Headers, in.HeadersOrder)
+	if in.Method == "" {
+		in.Method = "GET"
+	}
+	headers, seenContentLength, err := normalizeContentLength(in.Headers, len(in.Body))
 	if err != nil {
 		return nil, nil, err
 	}
-	if in.Method == "" {
-		in.Method = "GET"
+	if !seenContentLength && needsContentLength(in.Method, len(in.Body)) {
+		headers = append(headers, HeaderField{Name: "content-length", Value: strconv.Itoa(len(in.Body))})
+	}
+	headers, err = orderHeaders(headers, in.HeadersOrder)
+	if err != nil {
+		return nil, nil, err
 	}
 	if in.Method == "CONNECT" {
 		return nil, nil, errors.New("requests-utls: CONNECT requests are not supported by the prototype")

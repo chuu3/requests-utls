@@ -132,6 +132,7 @@ func TestConcurrentRequestOrderBodySnapshotsAndCookieIsolation(t *testing.T) {
 				ordered = []requestsutls.HeaderField{headers[3], headers[2], headers[0], headers[1]}
 			}
 			body := []byte("payload-" + value)
+			ordered = append(ordered, requestsutls.HeaderField{Name: "content-length", Value: fmt.Sprint(len(body))})
 			meta := metadata(t, server.URL, map[string]any{"method": "POST", "headers": headers, "headers_order": order})
 			result := r.RequestSubmit(sid, meta, body)
 			for j := range body {

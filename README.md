@@ -102,11 +102,12 @@ while `Do` is taking its snapshot. `Profile` itself exposes no mutable internals
 copied alongside headers before waiting for execution and does not modify the
 Session, TLS profile, or any other request. Its rules are:
 
-- Omitted/empty: preserve the input header list exactly.
+- Omitted/empty: preserve the input field order; generated fields follow it.
 - A name listed once moves all its values together, in their original order.
 - A repeated name schedules individual occurrences. If present, its number of
   order entries must equal its number of supplied field occurrences.
-- Missing names are ignored, making reusable order templates possible.
+- Generated fields participate in the order even when absent from the input.
+  Other missing names are ignored, making reusable order templates possible.
 - Unlisted fields follow in their original relative order.
 - Names are matched case-insensitively; HTTP/1.1 preserves input spelling and
   HTTP/2 writes lowercase names. Pseudo-header order continues to belong to the
@@ -116,6 +117,20 @@ For `x-a:1, x-b:2, x-a:3`, order `x-b,x-a` produces `x-b:2,x-a:1,x-a:3`;
 order `x-a,x-b,x-a` retains the interleaving. Concurrent callers may choose either
 order on the same Session. The Go caller must not mutate input slices during
 the snapshot; the Python wrapper builds private input buffers before submission.
+
+`Content-Length` is always calculated from the final request body bytes. A
+single supplied field keeps its spelling and position but its value is replaced;
+duplicate Content-Length fields are rejected. When missing, the engine adds it
+for nonempty bodies and for POST/PUT/PATCH (including `0` for empty bodies), then
+applies `HeadersOrder`. Empty GET/HEAD requests do not gain a Content-Length
+unless explicitly supplied. HTTP/1.1 also generates a missing `Host` before
+ordering; HTTP/2 uses the profile's `:authority` pseudo header instead.
+
+HTTP/1.1 keeps connections reusable by default without generating a `Connection`
+field. An explicit `Connection: keep-alive` or `Connection: close` keeps its input
+spelling and participates in `HeadersOrder`; `close` retires the connection after
+the response. HTTP/2 rejects connection-specific fields. Listing an otherwise
+absent field in `HeadersOrder` alone does not cause that field to be generated.
 
 There is no `mount`, adapters registry, mutable Session default-header map, shared
 header-order slice, or automatic cookie jar. Set `cookie` per request when needed.
@@ -206,8 +221,9 @@ The CLI writes one JSON result per request. `response.body` is base64 because it
 is an arbitrary byte buffer, not necessarily text. Limitations go to stderr.
 Pseudo-headers derive from the URL/method/profile.
 No User-Agent, Accept-Encoding or ordinary default headers are automatically added.
-An explicit content-length must match the body, and cannot repeat. HTTP/2 allows
-body framing without content-length. Invalid fields are rejected, not repaired.
+Content-Length is calculated from the final body bytes, including when supplied
+explicitly, and cannot repeat. Generated fields participate in headers_order.
+Other invalid fields are rejected.
 
 For a credential-bearing proxy URL, `-proxy-env VARIABLE_NAME` reads it from an
 explicit environment variable instead of putting it in command arguments. The

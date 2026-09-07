@@ -199,7 +199,10 @@ func prepareHTTP1Request(ctx context.Context, in Request) (*http.Request, []Head
 			return nil, nil, errors.New("request URL port must be 1..65535")
 		}
 	}
-	headers := append([]HeaderField(nil), in.Headers...)
+	headers, _, err := normalizeContentLength(in.Headers, len(in.Body))
+	if err != nil {
+		return nil, nil, err
+	}
 	seenHost, seenLength := false, false
 	for _, field := range headers {
 		if !httpguts.ValidHeaderFieldName(field.Name) || !httpguts.ValidHeaderFieldValue(field.Value) || strings.Trim(field.Value, " \t") != field.Value {
@@ -291,7 +294,7 @@ func (s *Session) roundTripHTTP1(req *http.Request, headers []HeaderField, body 
 	if !seenHost {
 		headers = append(headers, HeaderField{Name: "Host", Value: req.Host})
 	}
-	if !seenLength && (len(body) != 0 || req.Method == "POST" || req.Method == "PUT" || req.Method == "PATCH") {
+	if !seenLength && needsContentLength(req.Method, len(body)) {
 		headers = append(headers, HeaderField{Name: "Content-Length", Value: strconv.Itoa(len(body))})
 	}
 	var err error

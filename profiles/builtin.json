@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    "chrome_150",
+    "chrome_152"
+  ]
+}

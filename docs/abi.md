@@ -129,6 +129,13 @@ preserves supplied field name spelling; HTTP/2 lowercases names on the wire.
 Pseudo-header order belongs to the immutable profile. See the Go API for each
 protocol's field validation constraints.
 
+Once HTTP/1.1 is selected, Cookie occurrences are combined with `; ` after
+ordering, at the first Cookie's position and with its spelling. Empty fragments
+are omitted; all-empty occurrences retain one empty field. Thus repeated Cookie
+entries in `headers_order` count the original occurrences, before combining.
+HTTP/2 keeps separate Cookie occurrences. Other valid repeated fields keep their
+ordered occurrences. This applies to direct, forced and negotiated HTTP/1.1.
+
 Content-Length comes from the final body byte length, replacing a supplied
 single field's value while keeping its spelling and position. Duplicate
 Content-Length fields are rejected. Missing Content-Length is generated for

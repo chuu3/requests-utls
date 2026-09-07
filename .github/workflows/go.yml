@@ -11,39 +11,48 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            library: librequests_utls.so
+          - os: ubuntu-24.04
+            platform: linux_x86_64
             peer: requests-utls-testpeer
-          - os: macos-latest
-            library: librequests_utls.dylib
+          - os: macos-15
+            platform: macosx_13_0_arm64
             peer: requests-utls-testpeer
-          - os: windows-latest
-            library: librequests_utls.dll
+          - os: windows-2022
+            platform: win_amd64
             peer: requests-utls-testpeer.exe
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.11'
       - name: Test native artifact packaging guards
         run: python -m unittest discover -s scripts -p 'test_*.py'
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.27.x'
           cache: true
       - run: go vet ./...
       - run: go test -race ./...
       - run: go build ./cmd/requests-utls ./cmd/peetcheck
-      - run: go build -buildmode=c-shared -o dist/${{ matrix.library }} ./cmd/requests-utls-shared
-      - run: go build -o dist/${{ matrix.peer }} ./cmd/requests-utls-testpeer
-      - uses: actions/upload-artifact@v4
+      - name: Build native binaries with their complete redistribution notices
+        run: >-
+          python scripts/pack_native.py
+          --output dist/native-artifact
+          --peer-output dist/testing/${{ matrix.peer }}
+          --wheel-platform ${{ matrix.platform }}
+          --engine-version v0.0.0-dev.${{ github.sha }}
+          --require-clean
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: requests-utls-abi1-${{ runner.os }}-${{ runner.arch }}
           path: |
-            dist/${{ matrix.library }}
-            dist/${{ matrix.peer }}
+            dist/native-artifact/
+            dist/testing/${{ matrix.peer }}
             include/requests_utls.h
             docs/abi.md
             profiles/chrome_152.json
             testdata/chrome_152_fingerprint.json
+          if-no-files-found: error

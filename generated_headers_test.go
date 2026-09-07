@@ -35,7 +35,7 @@ func generatedHeaderPeer(t *testing.T, protocol string, beforeReply func(context
 		body, _ := json.Marshal(request)
 		return body
 	}
-	if protocol == "http2" {
+	if protocol == "http2" || protocol == "http2_from_h1" {
 		peer := testServer(t, func(ctx context.Context, request testserver.Request) testserver.Response {
 			captured := generatedHeaderObservation{Body: request.Body, Connection: request.Connection}
 			for _, field := range request.Headers {
@@ -45,7 +45,11 @@ func generatedHeaderPeer(t *testing.T, protocol string, beforeReply func(context
 			}
 			return testserver.Response{Body: echo(ctx, captured)}
 		})
-		return testSession(t, peer, nil), peer.URL, observed
+		return testSession(t, peer, func(options *Options) {
+			if protocol == "http2_from_h1" {
+				options.Profile = h1MetadataProfile(t)
+			}
+		}), peer.URL, observed
 	}
 	peer := newH1WirePeer(t, protocol != "http1_plain", []string{"http/1.1"}, func(ctx context.Context, request h1WireRequest) (string, bool) {
 		body := echo(ctx, generatedHeaderObservation{Headers: request.Headers, Body: request.Body, Connection: request.Connection})
@@ -158,9 +162,13 @@ func TestGeneratedContentLengthParticipatesInOrder(t *testing.T) {
 			originalOrder := append([]string(nil), order...)
 			want := []HeaderField{fields[0]}
 			if protocol != "http2" {
+				want[0].Value = "a=1; b=2"
 				want = append(want, generatedHeaderHost(t, endpoint))
 			}
-			want = append(want, HeaderField{"Content-Length", "10"}, fields[1], fields[2])
+			want = append(want, HeaderField{"Content-Length", "10"}, fields[1])
+			if protocol == "http2" {
+				want = append(want, fields[2])
+			}
 			for range 2 {
 				response, err := session.Do(testContext(t), Request{Method: "POST", URL: endpoint, Headers: fields, HeadersOrder: order, Body: []byte("你好🙂")})
 				observed := decodeGeneratedHeaders(t, response, err)
@@ -230,11 +238,17 @@ func TestGeneratedContentLengthConcurrentIsolation(t *testing.T) {
 						fields = append(fields, HeaderField{length.Name, "wrong"})
 					}
 					original := append([]HeaderField(nil), fields...)
-					want := []HeaderField{first, length, middle, last}
-					if i%2 != 0 {
-						want = []HeaderField{middle, first, length, last}
-					}
+					wireFirst := first
 					if protocol != "http2" {
+						wireFirst.Value += "; " + last.Value
+					}
+					want := []HeaderField{wireFirst, length, middle}
+					if i%2 != 0 {
+						want = []HeaderField{middle, wireFirst, length}
+					}
+					if protocol == "http2" {
+						want = append(want, last)
+					} else {
 						want = append(want, generatedHeaderHost(t, endpoint))
 					}
 					body := []byte(strings.Repeat("界", i+1))

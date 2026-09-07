@@ -1,5 +1,7 @@
 """Checks for artifact portability and preservation of redistribution notices."""
 
+import argparse
+import json
 from pathlib import Path
 import tempfile
 import sys
@@ -58,6 +60,86 @@ class NativePackagingTests(unittest.TestCase):
             self.assertEqual((destination / "nested/LICENSE").read_text(), "another license")
             self.assertTrue((destination / "nested/NOTICE.txt").is_file())
             self.assertFalse((destination / "source.go").exists())
+
+    def test_distribution_collects_notices_for_library_and_peer_modules(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, goroot = root / "source", root / "go"
+            for relative in ("LICENSE", "internal/h2/LICENSE", "profiles/chrome_150.json", "profiles/chrome_152.json"):
+                path = source / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('{"schema_version":1}' if relative.endswith(".json") else relative)
+            (source / "profiles/builtin.json").write_text(json.dumps({"schema_version": 1, "profiles": ["chrome_150", "chrome_152"]}))
+            (source / "profiles/profile.schema.json").write_text('{"not_a_profile":true}')
+            (source / "profiles/README.md").write_text("profile documentation")
+            goroot.mkdir()
+            (goroot / "LICENSE").write_text("Go license")
+            packages = {}
+            for name, target in (("library", "./cmd/requests-utls-shared"),
+                                 ("peer-only", "./cmd/requests-utls-testpeer")):
+                directory = root / name
+                (directory / "nested").mkdir(parents=True)
+                (directory / "LICENSE").write_text(name + " license")
+                (directory / "nested/NOTICE").write_text(name + " notice")
+                packages[target] = {"Module": {
+                    "Path": "example.invalid/" + name, "Version": "v1.0.0",
+                    "Dir": str(directory), "Sum": "h1:test",
+                }}
+
+            def fake_run(*command, env=None):
+                if command[:2] == ("go", "env"):
+                    return json.dumps({"GOOS": "linux", "GOARCH": "amd64",
+                                       "GOROOT": str(goroot), "GOVERSION": "go1.27.1"})
+                if command[:2] == ("git", "rev-parse"):
+                    return "1" * 40
+                if command[:2] == ("git", "status"):
+                    return ""
+                if command[:2] == ("go", "build"):
+                    output = Path(command[command.index("-o") + 1])
+                    output.write_bytes(b"binary")
+                    return ""
+                if command[:2] == ("go", "list"):
+                    return "\n".join(json.dumps(packages[target])
+                                     for target in command if target in packages)
+                self.fail(f"unexpected packaging command {command[:2]}")
+
+            output, peer = root / "artifact", root / "testing/testpeer"
+            args = argparse.Namespace(output=output, peer_output=peer, go="go",
+                                      wheel_platform="linux_x86_64", glibc_baseline=None,
+                                      engine_version="v0.2.1", require_clean=True)
+            with patch.object(pack_native, "ROOT", source), \
+                    patch.object(pack_native, "run", side_effect=fake_run), \
+                    patch.object(pack_native, "inspect_binary", return_value={}):
+                manifest = pack_native.build(args)
+
+            self.assertTrue((output / "native/librequests_utls.so").is_file())
+            self.assertTrue(peer.is_file())
+            self.assertEqual(manifest["builtin_profiles"], ["chrome_150", "chrome_152"])
+            self.assertEqual({path.name for path in (output / "profiles").iterdir()}, {"chrome_150.json", "chrome_152.json"})
+            for name in manifest["builtin_profiles"]:
+                relative = "profiles/" + name + ".json"
+                self.assertEqual(manifest["files_sha256"][relative], pack_native.sha256(output / relative))
+            self.assertEqual({d["module"] for d in manifest["dependencies"]},
+                             {"example.invalid/library", "example.invalid/peer-only"})
+            for name in ("library", "peer-only"):
+                prefix = f"licenses/modules/example.invalid/{name}@v1.0.0"
+                self.assertEqual((output / prefix / "nested/NOTICE").read_text(), name + " notice")
+                self.assertIn(prefix + "/LICENSE", manifest["files_sha256"])
+                self.assertIn(prefix + "/nested/NOTICE", manifest["files_sha256"])
+            for path in ("licenses/requests-utls/LICENSE", "licenses/requests-utls/internal/h2/LICENSE",
+                         "licenses/go/LICENSE"):
+                self.assertIn(path, manifest["files_sha256"])
+
+    def test_profile_index_rejects_missing_files_and_invalid_names(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "profiles").mkdir()
+            index = root / "profiles/builtin.json"
+            for names in (["missing"], ["../escape"], ["one", "one"], [], "chrome_150"):
+                with self.subTest(names=names):
+                    index.write_text(json.dumps({"schema_version": 1, "profiles": names}), encoding="utf-8")
+                    with patch.object(pack_native, "ROOT", root), self.assertRaises(ValueError):
+                        pack_native.collect_profiles(root / "output")
 
     def test_macos_binary_cannot_require_newer_os_than_its_wheel(self):
         with patch.object(pack_native, "run", return_value="cmd LC_BUILD_VERSION\nminos 14.0\n"):

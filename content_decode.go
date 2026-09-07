@@ -14,6 +14,10 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
+// A byte limit on each representation does not bound the aggregate memory and
+// call depth of arbitrarily many nested decoders.
+const maxContentDecodingLayers = 4
+
 // responseLimitReader checks every representation, including the encoded body
 // and intermediate layers. A compressed response cannot bypass the body limit.
 type responseLimitReader struct {
@@ -51,9 +55,12 @@ func readResponseBody(res *http.Response, limit int64, decode bool) ([]byte, boo
 	}
 	var encodings []string
 	for _, value := range res.Header.Values("Content-Encoding") {
-		for _, encoding := range strings.Split(value, ",") {
+		for encoding := range strings.SplitSeq(value, ",") {
 			encoding = strings.ToLower(strings.TrimSpace(encoding))
 			if encoding != "" && encoding != "identity" {
+				if len(encodings) == maxContentDecodingLayers {
+					return nil, false, fmt.Errorf("Content-Encoding supports at most %d decoding layers", maxContentDecodingLayers)
+				}
 				encodings = append(encodings, encoding)
 			}
 		}

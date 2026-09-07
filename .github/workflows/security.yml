@@ -1,0 +1,56 @@
+name: Dependency and upstream checks
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  dependencies:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.1'
+          cache: true
+      - name: Check known vulnerable packages and reachable symbols
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
+  http2-upstream:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.1'
+          cache: true
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+      - name: Verify the original source baseline and dependency pin
+        run: python scripts/check_http2_upstream.py --report dist/upstream-baseline.json
+      - name: Check the latest upstream source for changes requiring review
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: python scripts/check_http2_upstream.py --latest --report dist/upstream-review.json
+      - name: Upload review evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: http2-upstream-review
+          path: dist/upstream-*.json
+          if-no-files-found: ignore

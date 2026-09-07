@@ -194,7 +194,8 @@ func TestHTTP1ALPNFallbackPreservesCaseOrderDuplicatesAndReusesOneConnection(t *
 		if err := json.Unmarshal(response.Body, &captured); err != nil {
 			t.Fatal(err)
 		}
-		if !reflect.DeepEqual(captured.Headers[:3], headers) {
+		wantRequest := []HeaderField{{"Cookie", "a=1; b=2"}, headers[1], {"Host", strings.TrimPrefix(peer.URL, "https://")}}
+		if !reflect.DeepEqual(captured.Headers, wantRequest) {
 			t.Fatalf("wire=%+v", captured.Headers)
 		}
 		if captured.Line != "GET /wire?q=1 HTTP/1.1" {
@@ -259,16 +260,18 @@ func TestHTTP1ConcurrentSharedSessionKeepsRequestHeadersAndCookiesIsolated(t *te
 		go func() {
 			headers := []HeaderField{{"Cookie", fmt.Sprintf("first=%d", i)}, {"X-ID", fmt.Sprint(i)}, {"cookie", fmt.Sprintf("second=%d", i)}}
 			order := []string{"cookie", "x-id", "cookie"}
-			want := append([]HeaderField(nil), headers...)
+			cookie := HeaderField{"Cookie", fmt.Sprintf("first=%d; second=%d", i, i)}
+			want := []HeaderField{cookie, headers[1]}
 			if i%2 != 0 {
 				order = []string{"x-id", "cookie"}
-				want = []HeaderField{headers[1], headers[0], headers[2]}
+				want = []HeaderField{headers[1], cookie}
 			}
+			want = append(want, HeaderField{"Host", strings.TrimPrefix(peer.URL, "https://")})
 			response, err := s.Do(testContext(t), Request{URL: peer.URL, Headers: headers, HeadersOrder: order})
 			if err == nil {
 				var actual []HeaderField
 				err = json.Unmarshal(response.Body, &actual)
-				if err == nil && !reflect.DeepEqual(actual[:3], want) {
+				if err == nil && !reflect.DeepEqual(actual, want) {
 					err = fmt.Errorf("request %d got %+v", i, actual)
 				}
 			}

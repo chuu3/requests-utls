@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/andybalholm/brotli"
@@ -86,6 +87,53 @@ func TestResponseStackedContentEncoding(t *testing.T) {
 	got, decoded, err := readResponseBody(res, 1<<20, true)
 	if err != nil || !decoded || !bytes.Equal(got, plain) {
 		t.Fatalf("stacked encodings: %v", err)
+	}
+}
+
+type unreadEncodedBody struct {
+	reads int
+}
+
+func (body *unreadEncodedBody) Read([]byte) (int, error) {
+	body.reads++
+	return 0, errors.New("body must not be read before encoding depth validation")
+}
+
+func (*unreadEncodedBody) Close() error { return nil }
+
+func TestResponseContentEncodingLayerLimit(t *testing.T) {
+	plain := []byte("four encoding layers remain supported")
+	encoded := bytes.Clone(plain)
+	for _, coding := range []string{"gzip", "br", "deflate", "zstd"} {
+		encoded = encodeTestBody(t, coding, encoded)
+	}
+	res := encodedResponse("identity, GZip, identity, BR", encoded)
+	res.Header.Add("Content-Encoding", "identity, deflate, ZSTD, identity")
+	got, decoded, err := readResponseBody(res, 1<<20, true)
+	if err != nil || !decoded || !bytes.Equal(got, plain) {
+		t.Fatalf("four non-identity layers across header occurrences: decoded=%v body=%q err=%v", decoded, got, err)
+	}
+	for _, fields := range [][]string{
+		{"gzip, br, deflate, zstd, gzip"},
+		{"identity, gzip, br", "IDENTITY, deflate, zstd", "gzip"},
+	} {
+		body := &unreadEncodedBody{}
+		res := &http.Response{Header: http.Header{"Content-Encoding": fields}, Body: body}
+		got, decoded, err := readResponseBody(res, 1<<20, true)
+		if err == nil || !strings.Contains(err.Error(), "at most 4 decoding layers") || body.reads != 0 || decoded || got != nil {
+			t.Fatalf("excess layers must fail before body reads/decoder construction: reads=%d decoded=%v body=%q err=%v", body.reads, decoded, got, err)
+		}
+	}
+	// Disabling decoding leaves the representation intact regardless of its
+	// encoding metadata; the existing byte limit still applies.
+	label := "gzip,br,deflate,zstd,gzip"
+	wire := encodeTestBody(t, "gzip", encoded)
+	got, decoded, err = readResponseBody(encodedResponse(label, wire), int64(len(wire)), false)
+	if err != nil || decoded || !bytes.Equal(got, wire) {
+		t.Fatalf("disabled decoding: decoded=%v err=%v", decoded, err)
+	}
+	if _, _, err := readResponseBody(encodedResponse(label, wire), int64(len(wire)-1), false); !errors.Is(err, ErrResponseTooLarge) {
+		t.Fatalf("disabled decoding bypassed the body limit: %v", err)
 	}
 }
 

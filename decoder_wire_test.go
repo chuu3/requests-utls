@@ -175,3 +175,65 @@ func TestDecoderWireLimitsEveryRepresentationAndRecovers(t *testing.T) {
 		})
 	}
 }
+
+func TestDecoderWireLayerLimitKeepsSessionUsable(t *testing.T) {
+	plain := []byte("bounded nested response")
+	valid := bytes.Clone(plain)
+	for _, coding := range []string{"gzip", "br", "deflate", "zstd"} {
+		valid = encodeTestBody(t, coding, valid)
+	}
+	excess := encodeTestBody(t, "gzip", valid)
+	selectBody := func(path string) (string, []byte) {
+		if path == "/excess" {
+			return "gzip,br,deflate,zstd,gzip", excess
+		}
+		return "gzip,br,deflate,zstd", valid
+	}
+	for _, protocol := range []string{"h1", "h2"} {
+		t.Run(protocol, func(t *testing.T) {
+			var session *Session
+			var baseURL string
+			var connectionCount func() (int, int)
+			if protocol == "h1" {
+				peer := newH1WirePeer(t, true, []string{"http/1.1"}, func(_ context.Context, req h1WireRequest) (string, bool) {
+					coding, body := selectBody(strings.Split(req.Line, " ")[1])
+					return chunkedEncodedReply(coding, body), false
+				})
+				session, baseURL = h1Session(t, peer, nil), peer.URL
+				connectionCount = func() (int, int) {
+					peer.mu.Lock()
+					defer peer.mu.Unlock()
+					return peer.accepted, len(peer.requests)
+				}
+			} else {
+				peer := testServer(t, func(_ context.Context, req testserver.Request) testserver.Response {
+					coding, body := selectBody(req.Header(":path"))
+					return testserver.Response{Headers: []hpack.HeaderField{{Name: "content-encoding", Value: coding}}, Body: body}
+				})
+				session, baseURL = testSession(t, peer, nil), peer.URL
+				connectionCount = func() (int, int) {
+					snapshot := peer.Snapshot()
+					return snapshot.Connections, len(snapshot.Requests)
+				}
+			}
+			for _, path := range []string{"/valid", "/excess", "/valid", "/valid"} {
+				response, err := session.Do(testContext(t), Request{URL: baseURL + path})
+				if path == "/excess" {
+					if err == nil || !strings.Contains(err.Error(), "at most 4 decoding layers") || response != nil {
+						t.Fatalf("excess encoding layers: response=%+v err=%v", response, err)
+					}
+				} else if err != nil || !response.Decoded || !bytes.Equal(response.Body, plain) {
+					t.Fatalf("valid response after layer-limit rejection: response=%+v err=%v", response, err)
+				}
+			}
+			wantConnections := 1
+			if protocol == "h1" {
+				wantConnections = 2 // An unread H1 body must retire its connection.
+			}
+			connections, requests := connectionCount()
+			if connections != wantConnections || requests != 4 {
+				t.Fatalf("connection disposition: connections=%d want=%d requests=%d", connections, wantConnections, requests)
+			}
+		})
+	}
+}

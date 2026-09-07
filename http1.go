@@ -300,6 +300,20 @@ func (s *Session) roundTripHTTP1(req *http.Request, headers []HeaderField, body 
 	var err error
 	headers, err = orderHTTP1Headers(headers, order)
 	if err != nil {
+		// A generated Host can make an order invalid for H1 while H2 would
+		// ignore the absent regular field. A capture's H1 metadata is only a
+		// preference: learn ALPN before rejecting on that protocol's behalf.
+		// Explicit H1 and known H1 origins still fail without dialing.
+		if req.URL.Scheme == "https" && !s.forceHTTP1 {
+			if !s.httpProtocolKnown(req) {
+				if discoverErr := s.discoverHTTPProtocol(req.Context(), req); discoverErr != nil {
+					return nil, discoverErr
+				}
+			}
+			if !s.useHTTP1(req) {
+				return nil, errProtocolHandoff
+			}
+		}
 		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
 	key := httpOrigin(req)
@@ -311,6 +325,9 @@ func (s *Session) roundTripHTTP1(req *http.Request, headers []HeaderField, body 
 			return nil, err
 		}
 	}
+	// dialHTTP1 hands an H2 connection back before reaching this point. Preserve
+	// all occurrences for H2; only actual H1 requests combine Cookie fields.
+	headers = coalesceHTTP1Cookies(headers)
 	reusable := false
 	cancelDone := make(chan struct{})
 	stop := context.AfterFunc(req.Context(), func() { conn.conn.Close(); close(cancelDone) })

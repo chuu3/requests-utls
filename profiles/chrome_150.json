@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "name": "chrome_150_capture_experimental",
+  "http_version": "h2",
+  "notes": [
+    "Imported from a single tls.peet.ws capture. Extension order is fixed to that sample, not a browser's complete randomized ordering policy.",
+    "IP addresses, capture metadata, request header values, SNI, randoms, session IDs, key material and ECH ciphertext were removed; dynamic TLS values are generated per connection.",
+    "GREASE extension bodies follow uTLS's BoringSSL behavior: first empty, second one zero byte; the capture does not expose their lengths.",
+    "This is an experimental Chrome/150 capture profile, not a claim of complete Chrome 150 handshake or connection behavior support.",
+    "Signature algorithms 0x0904, 0x0905 and 0x0906 are advertised but not implemented by uTLS v1.8.2; negotiation of these algorithms fails."
+  ],
+  "tls": {
+    "min_version": 771,
+    "max_version": 772,
+    "cipher_suites": [
+      2570,
+      4865,
+      4866,
+      4867,
+      49195,
+      49199,
+      49196,
+      49200,
+      52393,
+      52392,
+      49171,
+      49172,
+      156,
+      157,
+      47,
+      53
+    ],
+    "extensions": [
+      {
+        "type": "grease"
+      },
+      {
+        "type": "key_share",
+        "values": [
+          2570,
+          4588,
+          29
+        ]
+      },
+      {
+        "type": "supported_groups",
+        "values": [
+          2570,
+          4588,
+          29,
+          23,
+          24
+        ]
+      },
+      {
+        "type": "ec_point_formats",
+        "values": [
+          0
+        ]
+      },
+      {
+        "type": "server_name"
+      },
+      {
+        "type": "renegotiation_info"
+      },
+      {
+        "type": "alpn",
+        "protocols": [
+          "h2",
+          "http/1.1"
+        ]
+      },
+      {
+        "type": "session_ticket"
+      },
+      {
+        "type": "compress_certificate",
+        "values": [
+          2
+        ]
+      },
+      {
+        "type": "grease_ech",
+        "payload_lengths": [
+          128
+        ]
+      },
+      {
+        "type": "signature_algorithms",
+        "values": [
+          2308,
+          2309,
+          2310,
+          1027,
+          2052,
+          1025,
+          1283,
+          2053,
+          1281,
+          2054,
+          1537
+        ],
+        "allow_unsupported": true
+      },
+      {
+        "type": "extended_master_secret"
+      },
+      {
+        "type": "status_request"
+      },
+      {
+        "type": "supported_versions",
+        "values": [
+          2570,
+          772,
+          771
+        ]
+      },
+      {
+        "type": "sct"
+      },
+      {
+        "type": "psk_key_exchange_modes",
+        "values": [
+          1
+        ]
+      },
+      {
+        "type": "application_settings_new",
+        "protocols": [
+          "h2"
+        ]
+      },
+      {
+        "type": "grease"
+      }
+    ]
+  },
+  "http2": {
+    "settings": [
+      {
+        "id": 1,
+        "value": 65536
+      },
+      {
+        "id": 2,
+        "value": 0
+      },
+      {
+        "id": 4,
+        "value": 6291456
+      },
+      {
+        "id": 6,
+        "value": 262144
+      }
+    ],
+    "connection_window_update": 15663105,
+    "pseudo_header_order": [
+      ":method",
+      ":authority",
+      ":scheme",
+      ":path"
+    ],
+    "header_priority": {
+      "stream_dep": 0,
+      "exclusive": true,
+      "weight": 256
+    }
+  }
+}

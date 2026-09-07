@@ -22,6 +22,7 @@ native library or a test peer that another process might be using.
 dist/native-macos-arm64/
   engine.json
   native/librequests_utls.dylib
+  profiles/chrome_150.json
   profiles/chrome_152.json
   licenses/requests-utls/...
   licenses/go/...
@@ -34,6 +35,11 @@ dist/native-macos-arm64-testing/
 the runtime payload; test infrastructure is excluded from wheels. Generated C
 headers are also excluded; C clients use the Go repository's
 [`include/requests_utls.h`](../include/requests_utls.h).
+
+`profiles/builtin.json` is the source list for bundled profiles. The builder
+copies only the declared files and records their names in the manifest's
+`builtin_profiles` array. All profile bytes are included in `files_sha256`.
+The source index and JSON schema are not installed as TLS profiles.
 
 ## Supported build targets
 
@@ -70,9 +76,21 @@ must inspect and bundle any other non-system runtime dependencies.
 the relative `library` path, and that file's `sha256`. `files_sha256` covers every
 runtime file except the manifest itself. License files retain their original
 directory hierarchy, including nested third-party notices. The manifest lists
-the versions and Go module checksums of all dependencies compiled into the
-library. It also records the native binary's platform requirements and dynamic
+the versions and Go module checksums of dependencies linked into either the
+library or its accompanying test peer. Wheels retain this complete set of
+notices even though they exclude the peer executable. The manifest also records
+the native library's platform requirements and dynamic
 dependencies.
+
+Go CI labels its downloadable payloads `v0.0.0-dev.<full-commit-sha>`. This is an
+unpublished development snapshot label accepted by the Python artifact builder,
+not a Go or Python release version. CI includes the runtime payload under
+`dist/native-artifact/` and its peer under `dist/testing/`, with the complete
+license set in the payload. The Python release workflow instead supplies
+`v<python-package-version>` as the artifact's release label. In both cases,
+`engine_commit` identifies the exact independent Go source revision; neither
+label replaces that pin or the ABI check. Ordinary Go CI artifacts are not
+audited manylinux release wheels.
 
 There are no generation timestamps or local build paths in the manifest. Go
 builds use `-trimpath`, disable automatic VCS metadata, and remove debug symbols

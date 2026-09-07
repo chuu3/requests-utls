@@ -8,6 +8,11 @@ client is maintained in the separate [requests-utls-python](https://github.com/c
 as `requests_utls`; no Go source is copied into the Python repository.
 The Go module path is `github.com/chuu3/requests-utls`.
 
+For development, see [CONTRIBUTING.md](CONTRIBUTING.md), the
+[profile capability table](docs/profile-capabilities.md), and
+[maintenance guide](docs/maintenance.md). Confidential reports are covered by
+[SECURITY.md](SECURITY.md); release changes are in [CHANGELOG.md](CHANGELOG.md).
+
 The [verification report](docs/verification.md) records local race/wire tests and
 authenticated HTTP CONNECT proxy tests against tls.peet.ws, including both the earlier
 30-second timeout and the passing 60-second concurrent run.
@@ -31,6 +36,7 @@ inconsistencies without treating them as exact fingerprint matches.
   automatic ALPN fallback and explicit `ForceHTTP1`.
 - Automatic gzip, deflate, Brotli and Zstandard response decoding with bounded
   encoded and decoded bodies; `DisableContentDecoding` returns original bytes.
+  Automatic decoding accepts at most four non-identity encoding layers.
 - Optional `RandomJA3` extension shuffling on each new connection without
   modifying shared profiles or requests already using an established connection.
 
@@ -131,6 +137,14 @@ field. An explicit `Connection: keep-alive` or `Connection: close` keeps its inp
 spelling and participates in `HeadersOrder`; `close` retires the connection after
 the response. HTTP/2 rejects connection-specific fields. Listing an otherwise
 absent field in `HeadersOrder` alone does not cause that field to be generated.
+
+After ordering, an actual HTTP/1.1 request combines Cookie occurrences with
+`; ` into one field, retaining the first occurrence's spelling and position.
+Empty fragments are omitted; all-empty Cookie fields become one empty field.
+Order entries refer to the original occurrences, before this combination.
+HTTP/2 retains separate Cookie fields, and other permitted repeated fields retain
+their order. The negotiated protocol determines this behavior, including when an
+H2 profile falls back to H1 through a server or intercepting proxy.
 
 There is no `mount`, adapters registry, mutable Session default-header map, shared
 header-order slice, or automatic cookie jar. Set `cookie` per request when needed.
@@ -248,7 +262,18 @@ sets `-unprocessed-retries 8`; normal Sessions default to 3. This changes only t
 bounded retry count, never which failures are eligible for replay. Set
 `Options.MaxUnprocessedRetries` to 1..32 to choose a bound, or -1 to disable.
 
-## Chrome 152 and fidelity
+## Built-in captures and fidelity
+
+`profiles/builtin.json` declares the profiles included in native artifacts:
+
+| Python builtin name | Go profile file |
+| --- | --- |
+| `chrome_150` | [chrome_150.json](profiles/chrome_150.json) |
+| `chrome_152` | [chrome_152.json](profiles/chrome_152.json) |
+
+Both are imported from distinct supplied captures. Chrome 150 has its own
+extension ordering and does not advertise extension 51764. Each profile retains
+its own declared limitations; adding a version is not a rename of another one.
 
 `profiles/chrome_152.json` is derived from the existing local browser capture. It
 contains protocol configuration, not the capture's IP address, TCP connection

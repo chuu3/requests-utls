@@ -170,6 +170,27 @@ def sha256(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def collect_profiles(output: Path) -> list[str]:
+    """Copy only the maintainer-declared builtins, never schema/document files."""
+    index = json.loads((ROOT / "profiles/builtin.json").read_text(encoding="utf-8"))
+    if not isinstance(index, dict) or index.get("schema_version") != 1:
+        raise ValueError("unsupported builtin profile index")
+    names = index.get("profiles")
+    if (not isinstance(names, list) or not names
+            or any(not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", name) for name in names)
+            or len(names) != len(set(names))):
+        raise ValueError("builtin profile index must contain unique profile names")
+    for name in names:
+        source = ROOT / "profiles" / (name + ".json")
+        if source.is_symlink() or not source.is_file():
+            raise ValueError(f"declared builtin profile is missing or not regular: {name}")
+        profile = json.loads(source.read_text(encoding="utf-8"))
+        if not isinstance(profile, dict) or profile.get("schema_version") != 1:
+            raise ValueError(f"declared builtin profile must contain a native profile object: {name}")
+        copy_file(source, output / "profiles" / (name + ".json"))
+    return names
+
+
 def build(args: argparse.Namespace) -> dict:
     output = args.output.resolve()
     env = dict(os.environ, CGO_ENABLED="1")
@@ -217,17 +238,20 @@ def build(args: argparse.Namespace) -> dict:
     # c-shared generates a header for C consumers, which is not a Python runtime file.
     library.with_suffix(".h").unlink(missing_ok=True)
     run(args.go, *common, "-o", str(peer), "./cmd/requests-utls-testpeer", env=env)
+    # CI distributes both binaries together. Collect the union of their linked
+    # modules, including modules used only by the test peer. Python wheels may
+    # retain extra notices even though the peer itself is shipped separately.
     packages = json_stream(run(args.go, "list", "-mod=readonly", "-deps", "-json",
-                               "./cmd/requests-utls-shared", env=env))
+                               "./cmd/requests-utls-shared", "./cmd/requests-utls-testpeer", env=env))
     dependencies = collect_licenses(output, goenv, packages)
-    copy_file(ROOT / "profiles/chrome_152.json", output / "profiles/chrome_152.json")
+    builtin_profiles = collect_profiles(output)
     manifest = {
         "schema_version": 1, "abi_version": 1,
         "engine_version": args.engine_version, "engine_commit": commit,
         "source_dirty": dirty, "go_version": goenv["GOVERSION"],
         "goos": goos, "goarch": goarch, "wheel_platform": args.wheel_platform,
         "library": library.relative_to(output).as_posix(), "sha256": sha256(library),
-        "dependencies": dependencies,
+        "dependencies": dependencies, "builtin_profiles": builtin_profiles,
         **inspect_binary(library, goos, minimum_os, args.glibc_baseline),
         "files_sha256": {path.relative_to(output).as_posix(): sha256(path)
                          for path in sorted(output.rglob("*")) if path.is_file()},

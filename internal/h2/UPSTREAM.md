@@ -74,3 +74,10 @@ For an upstream update, compare the pinned source against this directory, rebase
 the small modifications listed above, run the local wire tests and the root
 integration/race suite, and audit upstream protocol/security fixes. This initial
 prototype is not a promise that v0.58.0 contains later upstream security fixes.
+
+`upstream.json` records hashes for the 32 original source files, including the
+module-root `internal/httpcommon` and `internal/httpsfv` helpers. Run
+`python3 scripts/check_http2_upstream.py --latest` from the repository root to
+check for upstream changes; the script does not overwrite local modifications.
+See [the maintenance procedure](../../docs/maintenance.md) before explicitly
+regenerating this baseline after an upstream review.

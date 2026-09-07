@@ -42,7 +42,7 @@ class UpstreamAuditTests(unittest.TestCase):
     def write_source(self, name, text):
         path = self.upstream / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        path.write_bytes(text.encode("utf-8"))
 
     def go_json(self, repo, go, *arguments):
         self.go_calls.append(arguments)

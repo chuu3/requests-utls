@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Normalize headers in the Go engine for the actual negotiated protocol: H2
+  consumes Host as :authority and removes connection-specific fields and
+  Connection-nominated fields before ordering; H1 always has Host and puts it
+  first unless request-level HeadersOrder specifies its position. Preserve
+  snapshots and connection reuse across automatic ALPN handoffs without new
+  Python API or C ABI options.
 - Bundle distinct Chrome 150 and 152 captures through a declared profile index,
   preserving each capture's ordering and advertised-only limitations.
 - Combine Cookie occurrences only for actual HTTP/1.1 requests, after applying

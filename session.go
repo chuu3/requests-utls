@@ -245,7 +245,7 @@ func (s *Session) Do(ctx context.Context, input Request) (*Response, error) {
 	input.Headers = append([]HeaderField(nil), input.Headers...)
 	input.HeadersOrder = append([]string(nil), input.HeadersOrder...)
 	input.Body = bytes.Clone(input.Body)
-	req, ordered, err := prepareHTTP1Request(requestCtx, input)
+	req, prepared, err := prepareBaseRequest(requestCtx, input)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
@@ -263,7 +263,7 @@ func (s *Session) Do(ctx context.Context, input Request) (*Response, error) {
 	// is transferred intact, including its TLS state, without another handshake.
 	for range 4 {
 		if s.useHTTP1(req) {
-			response, err := s.roundTripHTTP1(req, ordered, input.Body, input.HeadersOrder)
+			response, err := s.roundTripHTTP1(req, prepared, input.Body, input.HeadersOrder)
 			if errors.Is(err, errProtocolHandoff) {
 				continue
 			}
@@ -284,8 +284,8 @@ func (s *Session) Do(ctx context.Context, input Request) (*Response, error) {
 		}
 		h2Req, fields, err := prepareRequest(requestCtx, h2Input)
 		if err != nil {
-			// Some fields (Host/Connection) are valid only in HTTP/1. If this
-			// origin is new, learn ALPN before rejecting those fields as H2.
+			// Filtering can change occurrence counts, or H1 may accept a field
+			// rejected by H2. Learn ALPN before rejecting on H2's behalf.
 			if !s.httpProtocolKnown(req) {
 				if discoverErr := s.discoverHTTPProtocol(requestCtx, req); discoverErr != nil {
 					return nil, s.requestError(ctx, discoverErr)
@@ -331,29 +331,27 @@ func (s *Session) requestError(ctx context.Context, err error) error {
 }
 
 func prepareRequest(ctx context.Context, in Request) (*http.Request, []hpack.HeaderField, error) {
-	if in.Method == "" {
-		in.Method = "GET"
-	}
-	headers, seenContentLength, err := normalizeContentLength(in.Headers, len(in.Body))
+	req, headers, err := prepareBaseRequest(ctx, in)
 	if err != nil {
 		return nil, nil, err
 	}
-	if !seenContentLength && needsContentLength(in.Method, len(in.Body)) {
+	if req.URL.Scheme != "https" {
+		return nil, nil, errors.New("requests-utls: an absolute https URL is required for HTTP/2")
+	}
+	headers, omitContentLength, err := normalizeHTTP2Headers(headers)
+	if err != nil {
+		return nil, nil, err
+	}
+	seenContentLength := false
+	for _, field := range headers {
+		seenContentLength = seenContentLength || field.Name == "content-length"
+	}
+	if !seenContentLength && !omitContentLength && needsContentLength(req.Method, len(in.Body)) {
 		headers = append(headers, HeaderField{Name: "content-length", Value: strconv.Itoa(len(in.Body))})
 	}
 	headers, err = orderHeaders(headers, in.HeadersOrder)
 	if err != nil {
 		return nil, nil, err
-	}
-	if in.Method == "CONNECT" {
-		return nil, nil, errors.New("requests-utls: CONNECT requests are not supported by the prototype")
-	}
-	req, err := http.NewRequestWithContext(ctx, in.Method, in.URL, bytes.NewReader(in.Body))
-	if err != nil {
-		return nil, nil, err
-	}
-	if req.URL.Scheme != "https" || req.URL.Hostname() == "" || req.URL.User != nil || req.URL.Fragment != "" {
-		return nil, nil, errors.New("requests-utls: an absolute https URL without userinfo or fragment is required")
 	}
 	// NewRequest's GetBody can rewind this owned snapshot. The transport may use
 	// it only when HTTP/2 proves the peer did not process the request (for example
@@ -365,8 +363,8 @@ func prepareRequest(ctx context.Context, in Request) (*http.Request, []hpack.Hea
 			return nil, nil, fmt.Errorf("requests-utls: invalid HTTP/2 header %q (lowercase regular names required)", f.Name)
 		}
 		switch f.Name {
-		case "host", "connection", "proxy-connection", "keep-alive", "transfer-encoding", "upgrade", "trailer":
-			return nil, nil, fmt.Errorf("requests-utls: unsupported HTTP/2 header %q", f.Name)
+		case "trailer":
+			return nil, nil, errors.New("requests-utls: request trailers are not supported")
 		case "te":
 			if f.Value != "trailers" {
 				return nil, nil, errors.New("requests-utls: te must be trailers")

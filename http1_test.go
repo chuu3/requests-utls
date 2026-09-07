@@ -194,7 +194,7 @@ func TestHTTP1ALPNFallbackPreservesCaseOrderDuplicatesAndReusesOneConnection(t *
 		if err := json.Unmarshal(response.Body, &captured); err != nil {
 			t.Fatal(err)
 		}
-		wantRequest := []HeaderField{{"Cookie", "a=1; b=2"}, headers[1], {"Host", strings.TrimPrefix(peer.URL, "https://")}}
+		wantRequest := []HeaderField{{"Host", strings.TrimPrefix(peer.URL, "https://")}, {"Cookie", "a=1; b=2"}, headers[1]}
 		if !reflect.DeepEqual(captured.Headers, wantRequest) {
 			t.Fatalf("wire=%+v", captured.Headers)
 		}
@@ -266,7 +266,7 @@ func TestHTTP1ConcurrentSharedSessionKeepsRequestHeadersAndCookiesIsolated(t *te
 				order = []string{"x-id", "cookie"}
 				want = []HeaderField{headers[1], cookie}
 			}
-			want = append(want, HeaderField{"Host", strings.TrimPrefix(peer.URL, "https://")})
+			want = append([]HeaderField{{"Host", strings.TrimPrefix(peer.URL, "https://")}}, want...)
 			response, err := s.Do(testContext(t), Request{URL: peer.URL, Headers: headers, HeadersOrder: order})
 			if err == nil {
 				var actual []HeaderField

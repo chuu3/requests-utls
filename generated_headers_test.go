@@ -130,7 +130,7 @@ func TestGeneratedContentLengthUsesFinalBodyBytes(t *testing.T) {
 					fields = append(fields, HeaderField{Name: "X-Last", Value: "after"})
 					want = append(want, HeaderField{Name: "X-Last", Value: "after"})
 					if protocol != "http2" {
-						want = append(want, generatedHeaderHost(t, endpoint))
+						want = append([]HeaderField{generatedHeaderHost(t, endpoint)}, want...)
 					}
 					if test.lengthName == "" && test.wantLength != "" {
 						want = append(want, HeaderField{Name: "Content-Length", Value: test.wantLength})
@@ -249,7 +249,7 @@ func TestGeneratedContentLengthConcurrentIsolation(t *testing.T) {
 					if protocol == "http2" {
 						want = append(want, last)
 					} else {
-						want = append(want, generatedHeaderHost(t, endpoint))
+						want = append([]HeaderField{generatedHeaderHost(t, endpoint)}, want...)
 					}
 					body := []byte(strings.Repeat("界", i+1))
 					response, err := session.Do(testContext(t), Request{Method: "POST", URL: endpoint, Headers: fields, HeadersOrder: templates[i%2], Body: body})
@@ -306,8 +306,10 @@ func TestGeneratedHeadersKeepConnectionProtocolSpecific(t *testing.T) {
 			order := []string{"x-last", "CONNECTION", "host", "content-length", "x-first"}
 			response, err := session.Do(testContext(t), Request{Method: "POST", URL: endpoint, Headers: fields, HeadersOrder: order, Body: []byte("abc")})
 			if protocol == "http2" {
-				if !errors.Is(err, ErrInvalidRequest) || requests.Load() != 2 {
-					t.Fatalf("HTTP/2 accepted a Connection header: err=%v requests=%d", err, requests.Load())
+				observed := decodeGeneratedHeaders(t, response, err)
+				want := generatedHeadersOnWire("http2", []HeaderField{fields[2], {"Content-Length", "3"}, fields[0]})
+				if !reflect.DeepEqual(observed.Headers, want) || observed.Connection != connection || requests.Load() != 3 {
+					t.Fatalf("HTTP/2 filtering changed remaining order or reuse: observed=%#v requests=%d", observed, requests.Load())
 				}
 				return
 			}

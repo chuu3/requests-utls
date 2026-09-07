@@ -176,7 +176,9 @@ func (s *Session) closeHTTPPools() {
 	}
 }
 
-func prepareHTTP1Request(ctx context.Context, in Request) (*http.Request, []HeaderField, error) {
+// prepareBaseRequest validates protocol-independent input. Protocol filtering,
+// generated fields and occurrence ordering belong to the selected wire path.
+func prepareBaseRequest(ctx context.Context, in Request) (*http.Request, []HeaderField, error) {
 	if in.Method == "" {
 		in.Method = "GET"
 	}
@@ -199,12 +201,8 @@ func prepareHTTP1Request(ctx context.Context, in Request) (*http.Request, []Head
 			return nil, nil, errors.New("request URL port must be 1..65535")
 		}
 	}
-	headers, _, err := normalizeContentLength(in.Headers, len(in.Body))
-	if err != nil {
-		return nil, nil, err
-	}
 	seenHost, seenLength := false, false
-	for _, field := range headers {
+	for _, field := range in.Headers {
 		if !httpguts.ValidHeaderFieldName(field.Name) || !httpguts.ValidHeaderFieldValue(field.Value) || strings.Trim(field.Value, " \t") != field.Value {
 			return nil, nil, fmt.Errorf("invalid HTTP header %q", field.Name)
 		}
@@ -216,17 +214,20 @@ func prepareHTTP1Request(ctx context.Context, in Request) (*http.Request, []Head
 			seenHost = true
 			req.Host = field.Value
 		case "content-length":
-			n, err := strconv.ParseUint(field.Value, 10, 63)
-			if seenLength || err != nil || strings.HasPrefix(field.Value, "+") || n != uint64(len(in.Body)) {
-				return nil, nil, errors.New("content-length must appear once and match body length")
+			if seenLength {
+				return nil, nil, errors.New("content-length must appear at most once")
 			}
 			seenLength = true
-		case "transfer-encoding", "upgrade", "trailer", "proxy-authorization", "proxy-connection":
+		case "proxy-authorization":
 			return nil, nil, fmt.Errorf("unsupported request header %q", field.Name)
 		}
-		req.Header.Add(field.Name, field.Value)
 	}
-	headers, err = orderHTTP1Headers(headers, in.HeadersOrder)
+	for i, name := range in.HeadersOrder {
+		if !httpguts.ValidHeaderFieldName(name) {
+			return nil, nil, fmt.Errorf("headers_order[%d]: invalid regular header name %q", i, name)
+		}
+	}
+	headers, _, err := normalizeContentLength(in.Headers, len(in.Body))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -298,10 +299,21 @@ func (s *Session) roundTripHTTP1(req *http.Request, headers []HeaderField, body 
 		headers = append(headers, HeaderField{Name: "Content-Length", Value: strconv.Itoa(len(body))})
 	}
 	var err error
-	headers, err = orderHTTP1Headers(headers, order)
+	for _, field := range headers {
+		switch strings.ToLower(field.Name) {
+		case "transfer-encoding", "upgrade", "trailer", "proxy-connection":
+			err = fmt.Errorf("unsupported HTTP/1.1 request header %q", field.Name)
+		}
+		if err != nil {
+			break
+		}
+	}
+	if err == nil {
+		headers, err = orderFinalHTTP1Headers(headers, order)
+	}
 	if err != nil {
-		// A generated Host can make an order invalid for H1 while H2 would
-		// ignore the absent regular field. A capture's H1 metadata is only a
+		// H2 filters connection fields and consumes Host as :authority, so
+		// H1 validation can fail for an otherwise valid H2 request. H1 metadata is a
 		// preference: learn ALPN before rejecting on that protocol's behalf.
 		// Explicit H1 and known H1 origins still fail without dialing.
 		if req.URL.Scheme == "https" && !s.forceHTTP1 {

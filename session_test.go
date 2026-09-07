@@ -343,10 +343,10 @@ func TestResponseLimitAndRequestValidation(t *testing.T) {
 		{{Name: "x-test", Value: "one\r\ninjected: two"}},
 		{{Name: "invalid name", Value: "x"}},
 		{{Name: ":method", Value: "POST"}},
-		{{Name: "connection", Value: "keep-alive"}},
+		{{Name: "proxy-authorization", Value: "fixture-only"}},
 	} {
-		if _, err := session.Do(ctx, Request{Method: "GET", URL: server.URL, Headers: fields}); err == nil {
-			t.Errorf("accepted invalid HTTP/2 fields: %#v", fields)
+		if _, err := session.Do(ctx, Request{Method: "GET", URL: server.URL, Headers: fields}); !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("invalid HTTP/2 fields did not fail validation: fields=%#v err=%v", fields, err)
 		}
 	}
 	if after := len(server.Snapshot().Requests); after != before {

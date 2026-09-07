@@ -120,7 +120,8 @@ end requests without a deadline; the engine also has its connection handshake
 deadline.
 
 Headers are ordered occurrences, never a map. An empty `headers_order` preserves
-their input order, with generated fields following them. A name listed once groups its occurrences in original
+their input order, except HTTP/1.1 Host is first; other generated fields follow
+them. A name listed once groups its occurrences in original
 order. Repeated names schedule individual occurrences, and their count must match
 the supplied header occurrences. Generated fields participate in sorting even
 when absent from the input; other absent names are ignored. Unlisted headers
@@ -140,9 +141,25 @@ Content-Length comes from the final body byte length, replacing a supplied
 single field's value while keeping its spelling and position. Duplicate
 Content-Length fields are rejected. Missing Content-Length is generated for
 nonempty bodies and POST/PUT/PATCH, including zero-length bodies, before ordering.
-HTTP/1.1 also generates a missing Host before ordering. The default HTTP/1.1
+HTTP/1.1 also generates a missing Host from the URL before ordering. If
+`headers_order` contains Host, its position is used; otherwise Host is first,
+even when explicitly supplied, retaining its spelling and value. The default HTTP/1.1
 connection persistence does not generate Connection; explicitly supplied
-Connection fields participate in ordering. HTTP/2 rejects these fields.
+Connection fields participate in ordering.
+
+HTTP/2 consumes Host as `:authority` (the URL authority when absent). It removes
+regular Host, Connection, Keep-Alive, Proxy-Connection, Transfer-Encoding,
+Upgrade, HTTP2-Settings and Connection-nominated fields before sorting. TE is
+retained only for case-insensitive `trailers`, normalized to that spelling,
+unless Connection nominates TE. Other TE values are dropped. A nominated
+Content-Length is omitted without regeneration; H2 DATA framing still sends the
+body. Absent removed names in `headers_order` are ignored; repeated entries
+count surviving H2 occurrences. Request trailers remain unsupported.
+
+These behaviors are implemented by the Go engine behind the unchanged ABI 1.
+Consumers forward headers and `headers_order`; they must not pre-filter shared
+headers based on a guessed protocol. Original header syntax, duplicate Host and
+Content-Length, and origin Proxy-Authorization are validated before filtering.
 
 Accepted submit returns immediately with a new request handle and no payload.
 JSON-level errors can fail submission immediately; semantic request errors such

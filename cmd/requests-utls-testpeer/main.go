@@ -113,12 +113,13 @@ func run() error {
 		}
 		body, _ := json.Marshal(struct {
 			Headers    [][2]string `json:"headers"`
+			Authority  string      `json:"authority"`
 			BodyBase64 string      `json:"body_base64"`
 			Connection int         `json:"connection"`
 			StreamID   uint32      `json:"stream_id"`
 			DidResume  bool        `json:"tls_did_resume"`
 		}{
-			Headers: headers, BodyBase64: base64.StdEncoding.EncodeToString(request.Body),
+			Headers: headers, Authority: request.Header(":authority"), BodyBase64: base64.StdEncoding.EncodeToString(request.Body),
 			Connection: request.Connection, StreamID: request.StreamID, DidResume: request.DidResume,
 		})
 		response := testserver.Response{Body: body, GoAway: path.Path == "/reconnect", Headers: []hpack.HeaderField{
@@ -224,7 +225,7 @@ func startHTTP1Peer() *httptest.Server {
 			return
 		}
 		response, _ := json.Marshal(map[string]any{"headers": r.Header, "body_base64": base64.StdEncoding.EncodeToString(body),
-			"connection": r.Context().Value(connectionKey{}), "protocol": r.Proto, "tls_did_resume": r.TLS.DidResume})
+			"host": r.Host, "connection": r.Context().Value(connectionKey{}), "protocol": r.Proto, "tls_did_resume": r.TLS.DidResume})
 		w.Header().Add("Set-Cookie", "peer_first=one; Path=/; HttpOnly")
 		w.Header().Add("Set-Cookie", "peer_second=two; Path=/; SameSite=Lax")
 		w.Header().Set("Content-Type", "application/json")

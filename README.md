@@ -108,7 +108,8 @@ while `Do` is taking its snapshot. `Profile` itself exposes no mutable internals
 copied alongside headers before waiting for execution and does not modify the
 Session, TLS profile, or any other request. Its rules are:
 
-- Omitted/empty: preserve the input field order; generated fields follow it.
+- Omitted/empty: preserve the input field order, except HTTP/1.1 Host is first;
+  other generated fields follow the input fields.
 - A name listed once moves all its values together, in their original order.
 - A repeated name schedules individual occurrences. If present, its number of
   order entries must equal its number of supplied field occurrences.
@@ -129,14 +130,29 @@ single supplied field keeps its spelling and position but its value is replaced;
 duplicate Content-Length fields are rejected. When missing, the engine adds it
 for nonempty bodies and for POST/PUT/PATCH (including `0` for empty bodies), then
 applies `HeadersOrder`. Empty GET/HEAD requests do not gain a Content-Length
-unless explicitly supplied. HTTP/1.1 also generates a missing `Host` before
-ordering; HTTP/2 uses the profile's `:authority` pseudo header instead.
+unless explicitly supplied. HTTP/1.1 also generates a missing `Host` from the
+URL. If `HeadersOrder` includes Host, that position is used; otherwise Host is
+the first field, including when supplied explicitly. Supplied spelling and
+value are preserved. HTTP/2 consumes an explicit Host as `:authority`, or uses
+the URL authority when absent, without sending a regular Host field. The URL
+still determines the connection destination, TLS SNI and certificate hostname.
 
 HTTP/1.1 keeps connections reusable by default without generating a `Connection`
 field. An explicit `Connection: keep-alive` or `Connection: close` keeps its input
 spelling and participates in `HeadersOrder`; `close` retires the connection after
-the response. HTTP/2 rejects connection-specific fields. Listing an otherwise
-absent field in `HeadersOrder` alone does not cause that field to be generated.
+the response. HTTP/2 removes Connection, Keep-Alive, Proxy-Connection,
+Transfer-Encoding, Upgrade, HTTP2-Settings and every regular field named by a
+Connection option, before ordering. The auxiliary transport headers are filtered
+as well, so a removed Connection: close cannot disable H2 connection reuse.
+TE is retained only for a case-insensitive `trailers` value, emitted as
+`trailers`, unless nominated for removal by Connection. Other TE values are
+removed. If Connection names Content-Length, H2 omits that optional field
+without regenerating it; DATA framing still carries the complete body.
+These rules follow [RFC 9113](https://www.rfc-editor.org/rfc/rfc9113.html#section-8.2.2).
+Removed names in `HeadersOrder` are ignored; occurrence counts refer to surviving
+H2 fields. Listing another absent field alone does not cause it to be generated.
+Request trailers remain unsupported. Malformed field syntax, duplicate Host or
+Content-Length, and origin Proxy-Authorization are rejected before filtering.
 
 After ordering, an actual HTTP/1.1 request combines Cookie occurrences with
 `; ` into one field, retaining the first occurrence's spelling and position.
@@ -145,6 +161,10 @@ Order entries refer to the original occurrences, before this combination.
 HTTP/2 retains separate Cookie fields, and other permitted repeated fields retain
 their order. The negotiated protocol determines this behavior, including when an
 H2 profile falls back to H1 through a server or intercepting proxy.
+
+All protocol selection, filtering, generation and ordering happens in this Go
+engine. The C ABI and Python client forward the same request-level options;
+neither needs a duplicate protocol implementation.
 
 There is no `mount`, adapters registry, mutable Session default-header map, shared
 header-order slice, or automatic cookie jar. Set `cookie` per request when needed.
@@ -233,7 +253,7 @@ while queued, dialing, handshaking, waiting for headers, and reading a body.
 
 The CLI writes one JSON result per request. `response.body` is base64 because it
 is an arbitrary byte buffer, not necessarily text. Limitations go to stderr.
-Pseudo-headers derive from the URL/method/profile.
+Pseudo-headers derive from the URL/method/profile and an optional Host override.
 No User-Agent, Accept-Encoding or ordinary default headers are automatically added.
 Content-Length is calculated from the final body bytes, including when supplied
 explicitly, and cannot repeat. Generated fields participate in headers_order.

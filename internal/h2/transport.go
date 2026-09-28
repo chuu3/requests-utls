@@ -182,6 +182,8 @@ func (t *Transport) initConnPool() {
 
 // ClientConn is the state of a single HTTP/2 client connection to an
 // HTTP/2 server.
+//
+// Deprecated: Use [http.ClientConn] instead.
 type ClientConn struct {
 	wireProfile *WireProfile // immutable per-connection snapshot
 

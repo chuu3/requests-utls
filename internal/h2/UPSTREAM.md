@@ -2,7 +2,7 @@
 
 The non-test top-level Go files in this directory, except `ordered_headers.go`
 and `wire_profile.go`, were copied from
-[`golang.org/x/net/http2` v0.58.0](https://github.com/golang/net/tree/v0.58.0/http2).
+[`golang.org/x/net/http2` v0.59.0](https://github.com/golang/net/tree/v0.59.0/http2).
 `internal/httpcommon` and `internal/httpsfv` were copied from the same module version. The original BSD
 license is retained in `LICENSE`, and original source copyright notices remain.
 HPACK, IDNA, and HTTP grammar helpers remain imports from the pinned x/net module.
@@ -73,7 +73,7 @@ is granted; profiles intended for normal requests should grant positive credit.
 For an upstream update, compare the pinned source against this directory, rebase
 the small modifications listed above, run the local wire tests and the root
 integration/race suite, and audit upstream protocol/security fixes. This initial
-prototype is not a promise that v0.58.0 contains later upstream security fixes.
+prototype is not a promise that v0.59.0 contains later upstream security fixes.
 
 `upstream.json` records hashes for the 32 original source files, including the
 module-root `internal/httpcommon` and `internal/httpsfv` helpers. Run
@@ -81,3 +81,16 @@ module-root `internal/httpcommon` and `internal/httpsfv` helpers. Run
 check for upstream changes; the script does not overwrite local modifications.
 See [the maintenance procedure](../../docs/maintenance.md) before explicitly
 regenerating this baseline after an upstream review.
+
+## v0.59.0 review
+
+Reviewed all six changed baseline files against v0.58.0. Applied the ASCII
+helper and IDNA Lookup conversion in `authorityAddr`, equivalent `max` buffer
+allocation, upstream deprecation comments, and shared server request validation
+for Host/:authority agreement, duplicate Host, and invalid authority values.
+The retained H2 server already promotes a missing authority from Host before
+calling the shared helper. Ordered client headers, wire settings, retry policy,
+and local import/build-tag changes remain intact; stdlib delegation remains
+excluded. The dependency now requires Go 1.26 or newer.
+
+Upstream comparison: https://github.com/golang/net/compare/v0.58.0...v0.59.0

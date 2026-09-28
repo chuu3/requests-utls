@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Sync the HTTP/2 fork and x/net dependency to v0.59.0, including IDNA Lookup
+  handling and shared Host/:authority validation; preserve ordered wire behavior.
+  The minimum Go version is now 1.26.
+
 - Normalize headers in the Go engine for the actual negotiated protocol: H2
   consumes Host as :authority and removes connection-specific fields and
   Connection-nominated fields before ordering; H1 always has Host and puts it

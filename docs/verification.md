@@ -1,7 +1,7 @@
 # Prototype verification — 2026-09-06
 
 Code was exercised on macOS arm64 with Go 1.27.1. The HTTP/2 fork uses
-`golang.org/x/net v0.58.0`; TLS uses `refraction-networking/utls v1.8.2`.
+`golang.org/x/net v0.59.0`; TLS uses `refraction-networking/utls v1.8.2`.
 
 ## Local checks
 

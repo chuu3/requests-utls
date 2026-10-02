@@ -1,5 +1,11 @@
 # Full changelog
 
+## Unreleased
+
+- Preserve proxy CONNECT socket timeout classification when the socket deadline
+  fires before the context timer, without exposing malformed proxy responses.
+- Separate third-party notices from the project's MIT license text.
+
 ## 0.3.0 — 2026-10-02
 
 - Add independent connect, proxy CONNECT, TLS handshake, response-header and

@@ -176,6 +176,8 @@ Separate Sessions never share connections, profile state or cookies.
 
 ### Redirect and Cookie ownership
 
+For the design tradeoffs and examples, see [the rationale (中文)](redirects-and-cookies.md).
+
 Each `Session.Do` performs one HTTP request operation against the supplied URL;
 it does not follow HTTP redirects. A 3xx response is returned with its status,
 ordered response fields (including Location and Set-Cookie), and buffered body.

@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-10-02
 
 - Preserve proxy CONNECT socket timeout classification when the socket deadline
   fires before the context timer, without exposing malformed proxy responses.
+- Add deterministic regression coverage across Windows, macOS and Linux.
 - Separate third-party notices from the project's MIT license text.
+- No public API, TLS profile or native ABI changes; ABI remains version 1.
 
 ## 0.3.0 — 2026-10-02
 

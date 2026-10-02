@@ -52,6 +52,11 @@ type bufferedProxyConn struct {
 func (c *bufferedProxyConn) Read(p []byte) (int, error) { return c.reader.Read(p) }
 
 func dialHTTPConnect(ctx context.Context, network, addr string, proxyURL *url.URL) (net.Conn, error) {
+	return dialHTTPConnectTimeouts(ctx, network, addr, proxyURL, 0, 0)
+}
+func dialHTTPConnectTimeouts(ctx context.Context, network, addr string, proxyURL *url.URL, connectTimeout, proxyTimeout time.Duration) (result net.Conn, resultErr error) {
+	start := time.Now()
+
 	if ctx == nil || proxyURL == nil {
 		return nil, errors.New("requests-utls: proxy CONNECT requires a context and proxy URL")
 	}
@@ -59,10 +64,20 @@ func dialHTTPConnect(ctx context.Context, network, addr string, proxyURL *url.UR
 	if err != nil || host == "" || port == "" || strings.ContainsAny(addr, "\r\n\t ") {
 		return nil, errors.New("requests-utls: invalid proxy CONNECT destination")
 	}
-	conn, err := (&net.Dialer{}).DialContext(ctx, network, proxyURL.Host)
+	dialCtx, dialCancel := phaseContext(ctx, connectTimeout)
+	conn, err := (&net.Dialer{}).DialContext(dialCtx, network, proxyURL.Host)
+	if err != nil {
+		err = stageError(dialCtx, "connect", start, err)
+	}
+	dialCancel()
 	if err != nil {
 		return nil, fmt.Errorf("requests-utls: proxy dial: %w", err)
 	}
+	start = time.Now()
+	proxyCtx, proxyCancel := phaseContext(ctx, proxyTimeout)
+	defer proxyCancel()
+	defer func() { resultErr = stageError(proxyCtx, "proxy_connect", start, resultErr) }()
+	ctx = proxyCtx
 	complete := false
 	cancelDone := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {

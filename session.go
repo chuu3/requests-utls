@@ -68,6 +68,13 @@ type Response struct {
 
 // Options are snapshotted by NewSession. A Session's transport never changes.
 type Options struct {
+	// Connect/TLS/Proxy timeouts default to 10s when zero. Header/body zero disables
+	// the phase limit. The caller context always bounds the whole operation.
+	ConnectTimeout           time.Duration
+	ProxyConnectTimeout      time.Duration
+	TLSHandshakeTimeout      time.Duration
+	ResponseHeaderTimeout    time.Duration
+	BodyTimeout              time.Duration
 	Profile                  *profile.Profile
 	ProxyURL                 string     // Explicit http:// CONNECT proxy; empty means direct.
 	ProxyAuth                *ProxyAuth // Optional separate Basic credentials; cannot combine with URL userinfo.
@@ -93,6 +100,11 @@ type ProxyAuth struct {
 // Session is safe for concurrent Do and Close calls. Create another Session to
 // change the profile or trust configuration; connections cannot cross Sessions.
 type Session struct {
+	connectTimeout         time.Duration
+	proxyConnectTimeout    time.Duration
+	tlsHandshakeTimeout    time.Duration
+	responseHeaderTimeout  time.Duration
+	bodyTimeout            time.Duration
 	profile                *profile.Profile
 	roots                  *x509.CertPool
 	insecure               bool
@@ -119,6 +131,20 @@ type Session struct {
 }
 
 func NewSession(o Options) (*Session, error) {
+	for _, d := range []time.Duration{o.ConnectTimeout, o.ProxyConnectTimeout, o.TLSHandshakeTimeout, o.ResponseHeaderTimeout, o.BodyTimeout} {
+		if d < 0 {
+			return nil, errors.New("requests-utls: phase timeouts must be nonnegative")
+		}
+	}
+	if o.ConnectTimeout == 0 {
+		o.ConnectTimeout = 10 * time.Second
+	}
+	if o.ProxyConnectTimeout == 0 {
+		o.ProxyConnectTimeout = 10 * time.Second
+	}
+	if o.TLSHandshakeTimeout == 0 {
+		o.TLSHandshakeTimeout = 10 * time.Second
+	}
 	if o.Profile == nil {
 		return nil, errors.New("requests-utls: profile is required")
 	}
@@ -183,7 +209,10 @@ func NewSession(o Options) (*Session, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Session{
-		profile: o.Profile, proxyURL: proxyURL, insecure: o.InsecureSkipVerify, maxResponse: o.MaxResponseBytes,
+		connectTimeout: o.ConnectTimeout, proxyConnectTimeout: o.ProxyConnectTimeout,
+		tlsHandshakeTimeout: o.TLSHandshakeTimeout, responseHeaderTimeout: o.ResponseHeaderTimeout,
+		bodyTimeout: o.BodyTimeout,
+		profile:     o.Profile, proxyURL: proxyURL, insecure: o.InsecureSkipVerify, maxResponse: o.MaxResponseBytes,
 		slots:   make(chan struct{}, o.MaxConcurrentRequests+o.MaxPendingRequests),
 		running: make(chan struct{}, o.MaxConcurrentRequests),
 		ctx:     ctx, cancel: cancel, connections: make(map[*trackedConn]struct{}), closeDone: make(chan struct{}),
@@ -199,6 +228,7 @@ func NewSession(o Options) (*Session, error) {
 	}
 	s.transport = &h2.Transport{
 		WireProfile:           wp,
+		ResponseHeaderTimeout: o.ResponseHeaderTimeout,
 		MaxUnprocessedRetries: o.MaxUnprocessedRetries,
 		DialTLSContext:        s.dialTLS,
 		DisableCompression:    true,
@@ -241,6 +271,7 @@ func (s *Session) Do(ctx context.Context, input Request) (*Response, error) {
 		return nil, ctx.Err()
 	}
 
+	queueStart := time.Now()
 	// Take ownership before waiting for a running slot.
 	input.Headers = append([]HeaderField(nil), input.Headers...)
 	input.HeadersOrder = append([]string(nil), input.HeadersOrder...)
@@ -253,7 +284,7 @@ func (s *Session) Do(ctx context.Context, input Request) (*Response, error) {
 	case s.running <- struct{}{}:
 		defer func() { <-s.running }()
 	case <-requestCtx.Done():
-		return nil, s.requestError(ctx, requestCtx.Err())
+		return nil, s.requestError(ctx, stageError(requestCtx, "queue", queueStart, requestCtx.Err()))
 	}
 	if requestCtx.Err() != nil {
 		return nil, s.requestError(ctx, requestCtx.Err())
@@ -299,14 +330,27 @@ func (s *Session) Do(ctx context.Context, input Request) (*Response, error) {
 		var raw []hpack.HeaderField
 		h2Req = h2.WithOrderedHeaders(h2Req, fields)
 		h2Req = h2.WithResponseHeaderSink(h2Req, &raw)
+		// Body cancellation belongs to this request/stream, never the shared socket.
+		h2Ctx, h2Cancel := context.WithCancel(h2Req.Context())
+		defer h2Cancel()
+		traceCtx, phaseTrace := newH2StageTrace(h2Ctx)
+		h2Req = h2Req.WithContext(traceCtx)
 		res, err := s.transport.RoundTrip(h2Req)
 		if errors.Is(err, errProtocolHandoff) {
 			continue
 		}
 		if err != nil {
-			return nil, s.requestError(ctx, err)
+			return nil, s.requestError(ctx, phaseTrace.wrap(h2Ctx, err))
 		}
+		bodyStart := time.Now()
+		bodyCtx, bodyCancel := phaseContext(h2Ctx, s.bodyTimeout)
+		stopBody := context.AfterFunc(bodyCtx, h2Cancel)
 		body, decoded, err := readResponseBody(res, s.maxResponse, !s.disableContentDecoding)
+		stopBody()
+		if err != nil {
+			err = stageError(bodyCtx, "body", bodyStart, err)
+		}
+		bodyCancel()
 		res.Body.Close()
 		if err != nil {
 			return nil, s.requestError(ctx, err)
@@ -321,13 +365,19 @@ func (s *Session) Do(ctx context.Context, input Request) (*Response, error) {
 }
 
 func (s *Session) requestError(ctx context.Context, err error) error {
+	var staged *StageError
+	if errors.As(err, &staged) {
+		copy := *staged
+		copy.Err = s.requestError(ctx, staged.Err)
+		return &copy
+	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	if s.ctx.Err() != nil {
 		return ErrSessionClosed
 	}
-	return err
+	return normalizeTimeout(err)
 }
 
 func prepareRequest(ctx context.Context, in Request) (*http.Request, []hpack.HeaderField, error) {
@@ -407,7 +457,7 @@ func (s *Session) dialTLS(ctx context.Context, network, addr string, _ *tls.Conf
 }
 
 func (s *Session) dialTLSConnection(ctx context.Context, network, addr string) (net.Conn, error) {
-	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	dialCtx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(s.ctx, cancel)
 	defer cancel()
 	defer stop()
@@ -422,13 +472,7 @@ func (s *Session) dialTLSConnection(ctx context.Context, network, addr string) (
 }
 
 func (s *Session) dialTLSAttempt(dialCtx context.Context, network, addr string, skipCachedTicket bool) (net.Conn, bool, error) {
-	var conn net.Conn
-	var err error
-	if s.proxyURL != nil {
-		conn, err = dialHTTPConnect(dialCtx, network, addr, s.proxyURL)
-	} else {
-		conn, err = (&net.Dialer{}).DialContext(dialCtx, network, addr)
-	}
+	conn, err := s.dialNetwork(dialCtx, network, addr)
 	if err != nil {
 		return nil, false, err
 	}
@@ -454,13 +498,16 @@ func (s *Session) dialTLSAttempt(dialCtx context.Context, network, addr string, 
 	config := &utls.Config{ServerName: host, RootCAs: s.roots, InsecureSkipVerify: s.insecure, SessionTicketsDisabled: true}
 	configureResumption(config, spec, s.sessionCache, addr, skipCachedTicket)
 	uconn := utls.UClient(tc, config, utls.HelloCustom)
+	tlsStart := time.Now()
+	tlsCtx, tlsCancel := phaseContext(dialCtx, s.tlsHandshakeTimeout)
+	defer tlsCancel()
 	if err = uconn.ApplyPreset(spec); err == nil {
-		err = uconn.HandshakeContext(dialCtx)
+		err = uconn.HandshakeContext(tlsCtx)
 	}
 	if err != nil {
 		tc.Close()
 		retry := !skipCachedTicket && config.ClientSessionCache != nil && err.Error() == utlsPSKHelloRetryError
-		return nil, retry, fmt.Errorf("requests-utls: TLS handshake: %w", err)
+		return nil, retry, stageError(tlsCtx, "tls", tlsStart, err)
 	}
 	if protocol := uconn.ConnectionState().NegotiatedProtocol; protocol != "h2" && protocol != "http/1.1" && protocol != "" {
 		tc.Close()

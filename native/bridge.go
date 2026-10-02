@@ -53,6 +53,11 @@ func Error(code int32, message string) Result {
 }
 
 type sessionConfig struct {
+	ConnectTimeoutMS         int64           `json:"connect_timeout_ms"`
+	ProxyConnectTimeoutMS    int64           `json:"proxy_connect_timeout_ms"`
+	TLSHandshakeTimeoutMS    int64           `json:"tls_handshake_timeout_ms"`
+	ResponseHeaderTimeoutMS  int64           `json:"response_header_timeout_ms"`
+	BodyTimeoutMS            int64           `json:"body_timeout_ms"`
 	Profile                  json.RawMessage `json:"profile"`
 	ProxyURL                 string          `json:"proxy_url"`
 	ProxyAuth                *proxyAuth      `json:"proxy_auth"`
@@ -159,8 +164,18 @@ func (r *Registry) SessionCreate(data []byte) Result {
 	if err != nil {
 		return Error(InvalidInput, err.Error())
 	}
+	for _, ms := range []int64{config.ConnectTimeoutMS, config.ProxyConnectTimeoutMS, config.TLSHandshakeTimeoutMS, config.ResponseHeaderTimeoutMS, config.BodyTimeoutMS} {
+		if ms < 0 || ms > int64((1<<63-1)/time.Millisecond) {
+			return Error(InvalidInput, "phase timeouts must be nonnegative milliseconds fitting a Go duration")
+		}
+	}
 	options := requestsutls.Options{
-		Profile: p, ProxyURL: config.ProxyURL, InsecureSkipVerify: config.InsecureSkipVerify,
+		ConnectTimeout:        time.Duration(config.ConnectTimeoutMS) * time.Millisecond,
+		ProxyConnectTimeout:   time.Duration(config.ProxyConnectTimeoutMS) * time.Millisecond,
+		TLSHandshakeTimeout:   time.Duration(config.TLSHandshakeTimeoutMS) * time.Millisecond,
+		ResponseHeaderTimeout: time.Duration(config.ResponseHeaderTimeoutMS) * time.Millisecond,
+		BodyTimeout:           time.Duration(config.BodyTimeoutMS) * time.Millisecond,
+		Profile:               p, ProxyURL: config.ProxyURL, InsecureSkipVerify: config.InsecureSkipVerify,
 		DisableSessionResumption: config.DisableSessionResumption,
 		ForceHTTP1:               config.ForceHTTP1, RandomJA3: config.RandomJA3,
 		DisableContentDecoding: config.DisableContentDecoding,
@@ -303,7 +318,16 @@ func execute(engine *requestsutls.Session, ctx context.Context, in requestsutls.
 		case errors.Is(err, requestsutls.ErrResponseTooLarge):
 			code = ResponseTooLarge
 		}
-		return Error(code, err.Error()), nil
+		result := Error(code, err.Error())
+		var staged *requestsutls.StageError
+		if errors.As(err, &staged) {
+			result.Data, _ = json.Marshal(struct {
+				Message   string  `json:"message"`
+				Stage     string  `json:"stage"`
+				ElapsedMS float64 `json:"elapsed_ms"`
+			}{err.Error(), staged.Stage, float64(staged.Elapsed) / float64(time.Millisecond)})
+		}
+		return result, nil
 	}
 	metadata, err := json.Marshal(responseMetadata{StatusCode: response.StatusCode, Headers: response.Headers, Protocol: response.Protocol, BodySize: len(response.Body), Decoded: response.Decoded})
 	if err != nil {

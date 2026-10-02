@@ -929,6 +929,9 @@ func (cc *ClientConn) closeForLostPing() {
 var errRequestCanceled = errors.New("net/http: request canceled")
 
 func (cc *ClientConn) responseHeaderTimeout() time.Duration {
+	if cc.t.ResponseHeaderTimeout != 0 {
+		return cc.t.ResponseHeaderTimeout
+	}
 	if cc.t.t1 != nil {
 		return cc.t.t1.ResponseHeaderTimeout
 	}

@@ -20,6 +20,9 @@ The Python project's [bulk profile acceptance](https://github.com/chuu3/requests
 checks each supplied cold-handshake capture and records historical Peet JA4
 inconsistencies without treating them as exact fingerprint matches.
 
+See [phase timeouts and error diagnostics](timeouts.md) for per-phase budgets
+and structured error stages.
+
 ## What works
 
 - Native versioned JSON profiles and an explicit `tls.peet.ws` capture importer.

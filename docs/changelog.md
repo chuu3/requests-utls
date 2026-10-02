@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add connection, proxy CONNECT, TLS, response-header and body phase timeouts
+  with structured error stages; normalize socket deadline errors consistently.
+- Batch ordinary Dependabot updates monthly and refresh compression/CI dependencies.
+
 - Shorten root documentation; move detailed usage, development and release history to `docs/`.
 
 - Clarify that redirect decisions and Cookie state management belong to callers;

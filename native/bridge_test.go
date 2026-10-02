@@ -368,3 +368,28 @@ func TestStrictInputAndErrorCodes(t *testing.T) {
 	}
 	assertEmpty(t, r)
 }
+
+func TestPhaseTimeoutMetadata(t *testing.T) {
+	server := startServer(t, func(ctx context.Context, _ testserver.Request) testserver.Response {
+		<-ctx.Done()
+		return testserver.Response{}
+	})
+	r := NewRegistry()
+	sid := newSession(t, r, server, map[string]any{"response_header_timeout_ms": 60})
+	submitted := r.RequestSubmit(sid, metadata(t, server.URL, nil), nil)
+	if submitted.Code != OK {
+		t.Fatalf("submit: %s", submitted.Data)
+	}
+	result := poll(t, r, sid)
+	if result.Code != Deadline {
+		t.Fatalf("code=%d data=%s", result.Code, result.Data)
+	}
+	var info struct {
+		Stage   string  `json:"stage"`
+		Elapsed float64 `json:"elapsed_ms"`
+	}
+	if err := json.Unmarshal(result.Data, &info); err != nil || info.Stage != "response_headers" || info.Elapsed <= 0 {
+		t.Fatalf("metadata: %s", result.Data)
+	}
+	r.RequestRelease(submitted.Handle)
+}

@@ -94,3 +94,7 @@ and local import/build-tag changes remain intact; stdlib delegation remains
 excluded. The dependency now requires Go 1.26 or newer.
 
 Upstream comparison: https://github.com/golang/net/compare/v0.58.0...v0.59.0
+
+The local transport also exposes ResponseHeaderTimeout independently of the
+stdlib adapter. It reuses the upstream per-stream final-header timer; timeout
+aborts that stream rather than applying a deadline to the multiplexed socket.

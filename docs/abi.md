@@ -60,6 +60,11 @@ fields, including unknown nested configuration fields, are rejected.
 | `max_concurrent_requests` | Default 64 when zero/omitted |
 | `max_pending_requests` | Default 0; extra admitted requests allowed to wait |
 | `max_response_bytes` | Default 32 MiB when zero/omitted; applies to encoded bytes and every decoding layer |
+| `connect_timeout_ms` | DNS/TCP timeout; 0/omitted defaults to 10000 ms |
+| `proxy_connect_timeout_ms` | CONNECT exchange timeout after TCP; 0/omitted defaults to 10000 ms |
+| `tls_handshake_timeout_ms` | Target handshake timeout; 0/omitted defaults to 10000 ms |
+| `response_header_timeout_ms` | Final headers after request write; 0/omitted disables phase limit |
+| `body_timeout_ms` | Entire buffered body consumption; 0/omitted disables phase limit |
 | `max_unprocessed_retries` | Default 3 when zero/omitted; -1 disables; maximum 32 |
 
 Proxy authentication goes only to the CONNECT proxy. Session transport and
@@ -266,3 +271,12 @@ with independent body/header-order/cookie snapshots, response duplicate fields,
 bounded retained results, cancellation, deadlines, release, concurrent close,
 strict input/error classification, and cleanup of registries. Entry-point tests
 cover NULL/oversized inputs and independent C-owned response buffers.
+
+## Phase error metadata
+
+Phase limits are Session-level nonnegative integer milliseconds fitting a Go
+Duration. The per-request timeout_ms still bounds the whole request. Existing
+error codes are unchanged. When the failing operation is known, error JSON adds
+`stage` and nonnegative `elapsed_ms` (a floating-point millisecond duration).
+Older clients may ignore these fields; new clients accept legacy message-only
+errors. See [timeout semantics](timeouts.md). No C signature or ownership changes.

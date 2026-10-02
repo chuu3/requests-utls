@@ -253,17 +253,7 @@ func (s *Session) dialHTTP1(ctx context.Context, req *http.Request) (*http1Conn,
 		}
 		return newHTTP1Conn(conn), nil
 	}
-	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	var conn net.Conn
-	var err error
-	if s.proxyURL != nil {
-		// The same explicit authenticated CONNECT path works for plain HTTP;
-		// proxy credentials remain outside origin request bytes.
-		conn, err = dialHTTPConnect(dialCtx, "tcp", httpAuthority(req), s.proxyURL)
-	} else {
-		conn, err = (&net.Dialer{}).DialContext(dialCtx, "tcp", httpAuthority(req))
-	}
+	conn, err := s.dialNetwork(ctx, "tcp", httpAuthority(req))
 	if err != nil {
 		return nil, err
 	}
@@ -369,6 +359,7 @@ func (s *Session) roundTripHTTP1(req *http.Request, headers []HeaderField, body 
 	if err := req.Context().Err(); err != nil {
 		return nil, err
 	}
+	writeStart := time.Now()
 	var wire bytes.Buffer
 	fmt.Fprintf(&wire, "%s %s HTTP/1.1\r\n", req.Method, req.URL.RequestURI())
 	closeRequest := false
@@ -383,20 +374,24 @@ func (s *Session) roundTripHTTP1(req *http.Request, headers []HeaderField, body 
 	// No retries after any write attempt: even a partial write may have reached
 	// the peer. A stale keep-alive connection therefore fails this request.
 	if _, err := io.Copy(conn.conn, &wire); err != nil {
-		return nil, fmt.Errorf("HTTP/1.1 request write: %w", err)
+		return nil, stageError(req.Context(), "write", writeStart, err)
 	}
 	if _, err := io.Copy(conn.conn, bytes.NewReader(body)); err != nil {
-		return nil, fmt.Errorf("HTTP/1.1 request body write: %w", err)
+		return nil, stageError(req.Context(), "write", writeStart, err)
+	}
+	headerStart := time.Now()
+	if err := conn.conn.SetReadDeadline(readDeadline(req.Context(), s.responseHeaderTimeout)); err != nil {
+		return nil, stageError(req.Context(), "response_headers", headerStart, fmt.Errorf("HTTP/1.1 response headers: %w", err))
 	}
 	for range 16 {
 		head, raw, err := readHTTP1Head(conn.reader)
 		if err != nil {
-			return nil, fmt.Errorf("HTTP/1.1 response headers: %w", err)
+			return nil, stageError(req.Context(), "response_headers", headerStart, fmt.Errorf("HTTP/1.1 response headers: %w", err))
 		}
 		parsed := bufio.NewReader(io.MultiReader(bytes.NewReader(head), conn.reader))
 		res, err := http.ReadResponse(parsed, req)
 		if err != nil {
-			return nil, fmt.Errorf("HTTP/1.1 response framing: %w", err)
+			return nil, stageError(req.Context(), "response_headers", headerStart, fmt.Errorf("HTTP/1.1 response headers: %w", err))
 		}
 		if res.StatusCode == http.StatusSwitchingProtocols {
 			conn.conn.Close()
@@ -413,13 +408,19 @@ func (s *Session) roundTripHTTP1(req *http.Request, headers []HeaderField, body 
 			}
 			continue
 		}
+		bodyStart := time.Now()
+		if err := conn.conn.SetReadDeadline(readDeadline(req.Context(), s.bodyTimeout)); err != nil {
+			conn.conn.Close()
+			res.Body.Close()
+			return nil, stageError(req.Context(), "body", bodyStart, err)
+		}
 		framedBody := &http1BodyEOF{ReadCloser: res.Body}
 		res.Body = framedBody
 		data, decoded, err := readResponseBody(res, s.maxResponse, !s.disableContentDecoding)
 		if err != nil {
 			conn.conn.Close()
 			res.Body.Close()
-			return nil, err
+			return nil, stageError(req.Context(), "body", bodyStart, err)
 		}
 		if !framedBody.eof {
 			// A codec can finish before an incomplete HTTP body finishes. Never

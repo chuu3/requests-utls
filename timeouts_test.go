@@ -218,7 +218,7 @@ func TestQueueTimeoutStage(t *testing.T) {
 func TestProxyResponseErrorBeforeContextDeadline(t *testing.T) {
 	// Reproduce the socket timer firing before ctx.Err() without a timing race.
 	err := proxyResponseError(&net.OpError{Op: "read", Err: timeoutNetError{}})
-	wrapped := stageError(context.Background(), "proxy_connect", time.Now(), err)
+	wrapped := stageError(context.Background(), "proxy_connect", time.Now().Add(-time.Millisecond), err)
 	assertStageTimeout(t, wrapped, "proxy_connect")
 }
 

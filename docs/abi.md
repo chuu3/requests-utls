@@ -96,6 +96,14 @@ arbitrary requests_go configuration formats.
 
 ## Requests and completions
 
+Redirects and Cookie state management belong to the caller. A 3xx response is
+returned with its ordered Location and Set-Cookie fields; the engine does not
+issue a follow-up request. Set-Cookie does not update a Session or affect future
+Cookie request fields. This contract provides no redirect options, CookieJar
+operations, Cookie precedence settings, or deletion tracking. Each submission
+retains its timeout, cancellation, completion, and release lifecycle. The engine
+continues to own connection pooling and cleanup across manual submissions.
+
 `ruts_request_submit(session_id, metadata, metadata_length, body, body_length)`
 accepts this request-level metadata:
 

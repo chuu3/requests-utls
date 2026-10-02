@@ -2,7 +2,12 @@
 
 ## Dependencies and the HTTP/2 fork
 
-Dependabot checks Go modules and GitHub Actions weekly. Dependency changes are
+Dependabot checks ordinary Go module and GitHub Actions updates monthly.
+Compatible compression updates are grouped; uTLS and x/net stay independent for
+wire/fork review. Actions updates are grouped and remain pinned to full commit
+SHAs. Review major changes and passing CI before merging; do not auto-merge.
+Dependabot vulnerability alerts and automated security fixes are enabled on both
+repositories and are not delayed until the monthly version-update schedule. Dependency changes are
 reviewed through the ordinary test workflow. The scheduled security workflow
 also runs the Go vulnerability checker:
 

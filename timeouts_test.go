@@ -214,3 +214,20 @@ func TestQueueTimeoutStage(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 }
+
+func TestProxyResponseErrorBeforeContextDeadline(t *testing.T) {
+	// Reproduce the socket timer firing before ctx.Err() without a timing race.
+	err := proxyResponseError(&net.OpError{Op: "read", Err: timeoutNetError{}})
+	wrapped := stageError(context.Background(), "proxy_connect", time.Now().Add(-time.Millisecond), err)
+	assertStageTimeout(t, wrapped, "proxy_connect")
+}
+
+func TestProxyResponseErrorDoesNotReflectResponse(t *testing.T) {
+	err := proxyResponseError(errors.New("malformed HTTP response: private-proxy-value"))
+	if err.Error() != "requests-utls: proxy CONNECT received an invalid or oversized HTTP response" {
+		t.Fatalf("unexpected sanitized error: %v", err)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("malformed response was classified as a timeout")
+	}
+}

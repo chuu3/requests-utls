@@ -128,7 +128,7 @@ func dialHTTPConnectTimeouts(ctx context.Context, network, addr string, proxyURL
 		}
 		// A proxy may reflect credentials in a malformed status line. Never
 		// include its raw response or the credential-bearing URL in errors.
-		return nil, errors.New("requests-utls: proxy CONNECT received an invalid or oversized HTTP response")
+		return nil, proxyResponseError(err)
 	}
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("requests-utls: proxy CONNECT returned HTTP status %d", response.StatusCode)
@@ -148,4 +148,13 @@ func dialHTTPConnectTimeouts(ctx context.Context, network, addr string, proxyURL
 	}
 	complete = true
 	return &bufferedProxyConn{Conn: conn, reader: io.MultiReader(bytes.NewReader(buffered), conn)}, nil
+}
+
+// proxyResponseError preserves timeout classification without reflecting proxy
+// response text, which may contain credentials, into the caller's error.
+func proxyResponseError(err error) error {
+	if errors.Is(normalizeTimeout(err), context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	return errors.New("requests-utls: proxy CONNECT received an invalid or oversized HTTP response")
 }

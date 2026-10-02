@@ -20,3 +20,8 @@ See the [development guide](docs/development.md) for compatibility, profile
 provenance and CI requirements, and [maintenance](docs/maintenance.md) for upstream
 updates. Retain copyright/license notices. Report vulnerabilities via
 [SECURITY.md](SECURITY.md).
+
+Use `type(scope): description` for commit messages and PR titles, for example
+`fix(proxy): preserve timeout classification` or `docs(design): explain cookie ownership`.
+Choose the type for the change: `fix`, `feat`, `docs`, `chore`, `build`, `ci`,
+`test` or `refactor`. The final merge or squash commit must use the same format.

@@ -1,16 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-02
 
-- Add connection, proxy CONNECT, TLS, response-header and body phase timeouts
-  with structured error stages; normalize socket deadline errors consistently.
-- Batch ordinary Dependabot updates monthly and refresh compression/CI dependencies.
+- Add independent connect, proxy CONNECT, TLS handshake, response-header and
+  response-body timeouts, plus structured error stages and elapsed time.
+- Normalize socket deadline errors and preserve HTTP/2 stream isolation when
+  header/body deadlines expire.
+- Connection setup now has separate 10-second connect, proxy CONNECT and TLS
+  budgets instead of one combined budget; the total request deadline still wins.
+  Header/body phase limits are disabled by default. ABI remains version 1.
+- Sync the HTTP/2 fork to x/net v0.59.0 (Go 1.26+), update compression libraries,
+  and batch ordinary Dependabot updates monthly.
+- Simplify documentation and clarify caller-owned redirects and Cookie state.
 
-- Shorten root documentation; move detailed usage, development and release history to `docs/`.
-
-- Sync the HTTP/2 fork and dependencies to x/net v0.59.0; require Go 1.26+.
-- Clarify caller-owned redirects and Cookie state management.
-- Retain protocol-aware ordered headers, Chrome 150/152 profiles and bounded decoding.
-
-See the [full changelog](docs/changelog.md) for detailed development changes and
-historical engine revisions.
+See the [full changelog](docs/changelog.md) for earlier releases.

@@ -1,6 +1,6 @@
 # Prototype verification — 2026-09-06
 
-Code was exercised on macOS arm64 with Go 1.27.1. The HTTP/2 fork uses
+The initial validation below used macOS arm64 with Go 1.27.1 and
 `golang.org/x/net v0.59.0`; TLS uses `refraction-networking/utls v1.8.2`.
 
 ## Local checks
@@ -98,7 +98,7 @@ those capability notes alongside the successful fingerprint checks.
 
 ## Connection lifetime — local verification, 2026-10-09
 
-The unreleased Go/native changes were tested on macOS with the local Go 1.27.1
+The initial connection-lifetime implementation was tested on macOS with the local Go 1.27.1
 toolchain. All network fixtures bind loopback and use generated certificates.
 They do not load external proxy settings, credentials or business URLs.
 
@@ -148,3 +148,37 @@ The 100-second proxy experiment is synthetic and does not establish any external
 provider's behavior. This public record covers synthetic local tests only.
 No private proxy scripts, configuration, packet captures or historical evidence
 were copied into this repo.
+
+## Security and PR review — 2026-10-09
+
+Go 1.27.2 and x/net v0.60.0 replace the vulnerable build/dependency versions.
+The copied H2 implementation was compared against all upstream changes,
+including server code and the new shared helper; see [provenance](../internal/h2/UPSTREAM.md).
+The original 9 reachable findings were GO-2026-6617, 6613, 6612, 6611, 6610,
+6608, 6607, 6605 and 6603. The upgraded scan reports zero reachable and zero
+imported-package vulnerabilities. A module-only notice, GO-2026-5932, concerns
+`golang.org/x/crypto/openpgp`, which is not imported and has no fixed version.
+No advisory was suppressed.
+
+Validation commands use the Go 1.27.2 toolchain:
+
+```sh
+go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -show verbose ./...
+python3 scripts/check_http2_upstream.py --latest
+python3 -m unittest discover -s scripts -p 'test_*.py'
+make check
+go test -race ./internal/h2 -run 'TestLifetime|TestSecurity' -count=10
+```
+
+Security regressions cover response-map and ordered-header sanitization, trailer
+memory accounting, wide header-budget arithmetic and lazy flow-control overflow.
+Lifetime regressions cover EOF/Close with sibling bodies and late cancellation
+of the last connection reservation. In both idle-cleanup failure cases, tests
+fail against the previous implementation and pass after correction.
+
+Three review passes covered (1) transport ownership and upstream security
+changes, (2) Python/native parameters and cancellation compatibility, and
+(3) documentation, build pins and committed-content privacy checks.
+`make check`, all 23 script tests and the 10-run race regression command above
+passed; the latest-upstream baseline check returned `ok`.
+Historical test records above retain their original toolchain and results.

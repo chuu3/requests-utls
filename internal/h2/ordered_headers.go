@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptrace"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/chuu3/requests-utls/internal/h2/internal/httpcommon"
 	"golang.org/x/net/http/httpguts"
 	"golang.org/x/net/http2/hpack"
-	"github.com/chuu3/requests-utls/internal/h2/internal/httpcommon"
 )
 
 type orderedHeadersKey struct{}
@@ -35,8 +36,28 @@ func WithOrderedHeaders(req *http.Request, fields []hpack.HeaderField) *http.Req
 // RoundTrip returns successfully and is not modified afterward. The caller must
 // not read the sink until RoundTrip returns or reuse it in concurrent requests.
 // Informational headers and trailers are not included.
+// Connection-specific and invalid Content-Length fields are omitted; identical
+// Content-Length duplicates are collapsed, matching the transport's sanitization.
 func WithResponseHeaderSink(req *http.Request, sink *[]hpack.HeaderField) *http.Request {
 	return req.WithContext(context.WithValue(req.Context(), responseHeaderSinkKey{}, sink))
+}
+
+func safeResponseFields(fields []hpack.HeaderField, header http.Header) []hpack.HeaderField {
+	result := make([]hpack.HeaderField, 0, len(fields))
+	seenLength := false
+	for _, field := range fields {
+		if slices.Contains(connHeaders, httpcommon.CanonicalHeader(field.Name)) {
+			continue
+		}
+		if field.Name == "content-length" {
+			if seenLength || header.Get("Content-Length") == "" {
+				continue
+			}
+			seenLength = true
+		}
+		result = append(result, field)
+	}
+	return result
 }
 
 func getOrderedHeaders(req *http.Request) ([]hpack.HeaderField, bool) {

@@ -1,6 +1,6 @@
 # 连接最大寿命与平滑替换
 
-在同一个 Session 内，让过老的物理 TCP/TLS 连接停止接收新请求，待在途请求及响应体处理完成后关闭。支持 HTTP/2、HTTP/1.1 与 ALPN 回退；**默认关闭**。本功能尚未发布，需要包含此实现的 Go/native 引擎和 Python 包。
+在同一个 Session 内，让过老的物理 TCP/TLS 连接停止接收新请求，待在途请求及响应体处理完成后关闭。支持 HTTP/2、HTTP/1.1 与 ALPN 回退；**默认关闭**。Go/native 引擎与 Python 包须配套使用，具体引擎提交由 Python 项目的 `engine.lock.json` 固定。
 
 ## 参数与接口
 

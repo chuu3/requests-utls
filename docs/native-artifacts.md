@@ -4,7 +4,7 @@ The Go repository produces a versioned directory of runtime files. The separate
 Python repository consumes that directory when building a wheel; end users do
 not need a Go compiler, GitHub access, or a separate engine download.
 
-Build a local Apple Silicon payload with Go 1.27.1 and the Xcode command line tools:
+Build a local Apple Silicon payload with Go 1.27.2 and the Xcode command line tools:
 
 ```sh
 MACOSX_DEPLOYMENT_TARGET=13.0 python3 scripts/pack_native.py \

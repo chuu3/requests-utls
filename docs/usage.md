@@ -45,8 +45,8 @@ and structured error stages.
 
 ## Build and verify
 
-Use a Go toolchain that satisfies `go.mod` (the initial prototype is verified with
-Go 1.27.1 on macOS arm64). The race detector also requires a C compiler.
+Use Go 1.27.2 for the validated native build; `go.mod` records the minimum
+supported version. The race detector also requires a C compiler.
 
 ```sh
 go test -race ./...

@@ -7,7 +7,8 @@ through CFFI; this repository owns the Go API and native ABI.
 
 ## Quick start
 
-Requires Go 1.26+; native libraries and race tests also require a C compiler.
+Use Go 1.27.2 for native builds and CI (minimum Go 1.26.9); native libraries
+and race tests also require a C compiler.
 Run from the repository root:
 
 ```sh

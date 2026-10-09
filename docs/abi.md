@@ -57,8 +57,8 @@ fields, including unknown nested configuration fields, are rejected.
 | `random_ja3` | Default false; shuffle eligible extension positions separately for each new connection |
 | `force_http1` | Default false; advertise only HTTP/1.1 and remove HTTP/2 ALPS when true |
 | `disable_content_decoding` | Default false; true returns the original compressed body bytes |
-| `max_connection_age_ms` | Unreleased: nonnegative integer milliseconds, default 0 disables physical connection retirement |
-| `connection_age_jitter_ms` | Unreleased: integer milliseconds, default 0; must be less than enabled maximum age, or both zero |
+| `max_connection_age_ms` | Nonnegative integer milliseconds, default 0 disables physical connection retirement |
+| `connection_age_jitter_ms` | Integer milliseconds, default 0; must be less than enabled maximum age, or both zero |
 | `max_concurrent_requests` | Default 64 when zero/omitted |
 | `max_pending_requests` | Default 0; extra admitted requests allowed to wait |
 | `max_response_bytes` | Default 32 MiB when zero/omitted; applies to encoded bytes and every decoding layer |
@@ -213,6 +213,10 @@ Outstanding handles, including completed but unreleased results, are bounded by
 limit is reached. Always release a result after copying its response body.
 Canceled-but-released work retains its admission slot until its Go execution
 finishes, preventing repeated submit/release from creating unbounded goroutines.
+
+HTTP/2 response headers preserve normal field order and duplicates. Protocol
+safety checks omit connection-specific fields and invalid Content-Length values,
+and collapse identical Content-Length duplicates in both map and ordered output.
 
 ## Cancellation, release, and close
 

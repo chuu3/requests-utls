@@ -1,8 +1,8 @@
 # Upstream provenance and local changes
 
-The non-test top-level Go files in this directory, except `ordered_headers.go`
-and `wire_profile.go`, were copied from
-[`golang.org/x/net/http2` v0.59.0](https://github.com/golang/net/tree/v0.59.0/http2).
+The non-test top-level Go files in this directory, except `ordered_headers.go`,
+`wire_profile.go` and `connection_lifetime.go`, were copied from
+[`golang.org/x/net/http2` v0.60.0](https://github.com/golang/net/tree/v0.60.0/http2).
 `internal/httpcommon` and `internal/httpsfv` were copied from the same module version. The original BSD
 license is retained in `LICENSE`, and original source copyright notices remain.
 HPACK, IDNA, and HTTP grammar helpers remain imports from the pinned x/net module.
@@ -72,10 +72,10 @@ is granted; profiles intended for normal requests should grant positive credit.
 
 For an upstream update, compare the pinned source against this directory, rebase
 the small modifications listed above, run the local wire tests and the root
-integration/race suite, and audit upstream protocol/security fixes. This initial
-prototype is not a promise that v0.59.0 contains later upstream security fixes.
+integration/race suite, and audit upstream protocol/security fixes. The recorded
+baseline does not establish coverage of future upstream security fixes.
 
-`upstream.json` records hashes for the 32 original source files, including the
+`upstream.json` records hashes for the 33 original source files, including the
 module-root `internal/httpcommon` and `internal/httpsfv` helpers. Run
 `python3 scripts/check_http2_upstream.py --latest` from the repository root to
 check for upstream changes; the script does not overwrite local modifications.
@@ -99,7 +99,7 @@ The local transport also exposes ResponseHeaderTimeout independently of the
 stdlib adapter. It reuses the upstream per-stream final-header timer; timeout
 aborts that stream rather than applying a deadline to the multiplexed socket.
 
-## Connection lifetime extension (unreleased)
+## Connection lifetime extension
 
 `connection_lifetime.go` and the optional `Transport.ConnectionRetireAt` callback
 carry a physical dial deadline into the H2 pool. Reservation and final stream
@@ -110,4 +110,26 @@ owners are gone. `client_conn_pool.go` rejects fresh connections that expire
 before their first reservation and checks caller cancellation before redialing.
 `transport.go` tracks reservation release per stream to prevent pre-stream
 failure cleanup from decrementing another request's reservation. No GOAWAY is
-sent for local age retirement. These files are local additions, not upstream.
+sent for local age retirement. Body release and late reservation cancellation
+resume idle cleanup at the original idle deadline. These extensions are local
+changes, not upstream.
+
+## v0.60.0 security review
+
+Reviewed and applied all five changed baseline files: `flow.go`, `frame.go`,
+`server.go`, `transport.go`, and `writesched.go`, plus the new
+`internal/httpcommon/gzip.go` helper. The update bounds work for
+initial-window SETTINGS changes (GO-2026-6611), accounts for declared trailer
+map memory (GO-2026-6603), sanitizes response framing headers (GO-2026-6610),
+serializes server HPACK table updates (GO-2026-6617), and refunds server body
+flow credit once (GO-2026-6612). Server fixes are retained even though the
+public engine uses the client transport.
+
+Local adaptations preserve ordered headers, profile settings, push rejection,
+retries and connection lifetime ownership. Header-budget sums widen before
+addition to avoid uint32 overflow. The ordered response-header sink applies
+the same framing sanitization as the response map; normal duplicate fields
+retain their original order. The v0.60.0 flow tests and local security
+regressions cover flow overflow, trailer budgets and both response-header paths.
+
+Upstream comparison: https://github.com/golang/net/compare/v0.59.0...v0.60.0

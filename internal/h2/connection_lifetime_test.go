@@ -1,6 +1,7 @@
 package http2
 
 import (
+	"context"
 	"io"
 	"net"
 	"strings"
@@ -8,6 +9,32 @@ import (
 	"testing"
 	"time"
 )
+
+func TestLifetimeIdleCleanupAfterCanceledReservation(t *testing.T) {
+	cc, peer := lifetimeTestConn(t)
+	cc.lifetimeUses = 1
+	cc.streamsReserved = 1
+	cc.idleTimeout = time.Millisecond
+	cc.lastIdle = time.Now().Add(-time.Second)
+	cc.idleTimer = time.AfterFunc(time.Hour, cc.onIdleTimeout)
+	defer cc.idleTimer.Stop()
+	cc.onIdleTimeout() // Expired timer cannot close while either owner remains.
+	cc.releaseLifetimeUse()
+	cc.mu.Lock()
+	closed := cc.closed
+	cc.mu.Unlock()
+	if closed {
+		t.Fatal("closed before the reserved request finished cleanup")
+	}
+	// The request canceled before writeRequest released its reservation, and
+	// its RoundTrip returned before this asynchronous cleanup ran.
+	cs := &clientStream{cc: cc, abort: make(chan struct{}), donec: make(chan struct{})}
+	cs.cleanupWriteRequest(context.Canceled)
+	peer.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := peer.Read(make([]byte, 1)); err != io.EOF {
+		t.Fatalf("idle socket not closed after cancellation cleanup: %v", err)
+	}
+}
 
 func lifetimeTestConn(t *testing.T) (*ClientConn, net.Conn) {
 	t.Helper()

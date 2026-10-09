@@ -68,6 +68,10 @@ type Response struct {
 
 // Options are snapshotted by NewSession. A Session's transport never changes.
 type Options struct {
+	// MaxConnectionAge includes dial, CONNECT and TLS time; zero disables retirement.
+	// ConnectionAgeJitter is sampled once per connection and must be smaller than age.
+	MaxConnectionAge    time.Duration
+	ConnectionAgeJitter time.Duration
 	// Connect/TLS/Proxy timeouts default to 10s when zero. Header/body zero disables
 	// the phase limit. The caller context always bounds the whole operation.
 	ConnectTimeout           time.Duration
@@ -100,6 +104,8 @@ type ProxyAuth struct {
 // Session is safe for concurrent Do and Close calls. Create another Session to
 // change the profile or trust configuration; connections cannot cross Sessions.
 type Session struct {
+	maxConnectionAge       time.Duration
+	connectionAgeJitter    time.Duration
 	connectTimeout         time.Duration
 	proxyConnectTimeout    time.Duration
 	tlsHandshakeTimeout    time.Duration
@@ -131,6 +137,9 @@ type Session struct {
 }
 
 func NewSession(o Options) (*Session, error) {
+	if o.MaxConnectionAge < 0 || o.ConnectionAgeJitter < 0 || (o.MaxConnectionAge == 0 && o.ConnectionAgeJitter != 0) || (o.MaxConnectionAge > 0 && o.ConnectionAgeJitter >= o.MaxConnectionAge) {
+		return nil, errors.New("requests-utls: require 0 <= connection jitter < maximum age, or both zero")
+	}
 	for _, d := range []time.Duration{o.ConnectTimeout, o.ProxyConnectTimeout, o.TLSHandshakeTimeout, o.ResponseHeaderTimeout, o.BodyTimeout} {
 		if d < 0 {
 			return nil, errors.New("requests-utls: phase timeouts must be nonnegative")
@@ -209,6 +218,7 @@ func NewSession(o Options) (*Session, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Session{
+		maxConnectionAge: o.MaxConnectionAge, connectionAgeJitter: o.ConnectionAgeJitter,
 		connectTimeout: o.ConnectTimeout, proxyConnectTimeout: o.ProxyConnectTimeout,
 		tlsHandshakeTimeout: o.TLSHandshakeTimeout, responseHeaderTimeout: o.ResponseHeaderTimeout,
 		bodyTimeout: o.BodyTimeout,
@@ -233,6 +243,9 @@ func NewSession(o Options) (*Session, error) {
 		DialTLSContext:        s.dialTLS,
 		DisableCompression:    true,
 		IdleConnTimeout:       30 * time.Second,
+	}
+	if o.MaxConnectionAge > 0 {
+		s.transport.ConnectionRetireAt = connectionRetireAt
 	}
 	return s, nil
 }
@@ -472,11 +485,12 @@ func (s *Session) dialTLSConnection(ctx context.Context, network, addr string) (
 }
 
 func (s *Session) dialTLSAttempt(dialCtx context.Context, network, addr string, skipCachedTicket bool) (net.Conn, bool, error) {
+	createdAt, retireAt := s.newConnectionLifetime()
 	conn, err := s.dialNetwork(dialCtx, network, addr)
 	if err != nil {
 		return nil, false, err
 	}
-	tc := &trackedConn{Conn: conn, session: s}
+	tc := &trackedConn{Conn: conn, session: s, createdAt: createdAt, retireAt: retireAt}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -513,6 +527,10 @@ func (s *Session) dialTLSAttempt(dialCtx context.Context, network, addr string, 
 		tc.Close()
 		return nil, false, errors.New("requests-utls: server negotiated an unsupported ALPN protocol")
 	}
+	if connectionExpired(uconn) {
+		uconn.Close()
+		return nil, false, ErrConnectionExpired
+	}
 	return uconn, false, nil
 }
 
@@ -546,6 +564,8 @@ func (s *Session) Close() error {
 }
 
 type trackedConn struct {
+	createdAt time.Time
+	retireAt  time.Time
 	net.Conn
 	session  *Session
 	once     sync.Once

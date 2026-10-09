@@ -98,3 +98,16 @@ Upstream comparison: https://github.com/golang/net/compare/v0.58.0...v0.59.0
 The local transport also exposes ResponseHeaderTimeout independently of the
 stdlib adapter. It reuses the upstream per-stream final-header timer; timeout
 aborts that stream rather than applying a deadline to the multiplexed socket.
+
+## Connection lifetime extension (unreleased)
+
+`connection_lifetime.go` and the optional `Transport.ConnectionRetireAt` callback
+carry a physical dial deadline into the H2 pool. Reservation and final stream
+creation check expiry under `ClientConn.mu`. Stream-quota waits install a bounded
+retirement wake timer. A separate body owner count includes buffered DATA after
+END_STREAM, so local retirement closes only after reservations, streams and body
+owners are gone. `client_conn_pool.go` rejects fresh connections that expire
+before their first reservation and checks caller cancellation before redialing.
+`transport.go` tracks reservation release per stream to prevent pre-stream
+failure cleanup from decrementing another request's reservation. No GOAWAY is
+sent for local age retirement. These files are local additions, not upstream.

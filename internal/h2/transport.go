@@ -185,6 +185,10 @@ func (t *Transport) initConnPool() {
 //
 // Deprecated: Use [http.ClientConn] instead.
 type ClientConn struct {
+	retireAt     time.Time
+	retiring     bool // guarded by mu; no synthetic GOAWAY
+	lifetimeUses int  // RoundTrip through response body EOF/Close, guarded by mu
+
 	wireProfile *WireProfile // immutable per-connection snapshot
 
 	t             *Transport
@@ -284,6 +288,8 @@ type ClientConn struct {
 // clientStream is the state for a single HTTP/2 stream. One of these
 // is created for each Transport.RoundTrip call.
 type clientStream struct {
+	reservationReleased bool // owned by writeRequest/cleanupWriteRequest
+
 	cc *ClientConn
 
 	// Fields of Request that we may access even after the response body is closed.
@@ -497,6 +503,13 @@ func (t *Transport) newClientConn(c net.Conn, singleUse bool, internalStateHook 
 		lastActive:                  time.Now(),
 		internalStateHook:           internalStateHook,
 	}
+	if t.ConnectionRetireAt != nil {
+		cc.retireAt = t.ConnectionRetireAt(c)
+	}
+	if !cc.retireAt.IsZero() && !time.Now().Before(cc.retireAt) {
+		c.Close()
+		return nil, ErrConnectionExpired
+	}
 	if t.transportTestHooks != nil {
 		t.transportTestHooks.newclientconn(cc)
 		c = cc.tconn
@@ -663,7 +676,7 @@ func (cc *ClientConn) state() ClientConnState {
 	defer cc.mu.Unlock()
 	return ClientConnState{
 		Closed:               cc.closed,
-		Closing:              cc.closing || cc.singleUse || cc.doNotReuse || cc.goAway != nil,
+		Closing:              cc.retiring || cc.closing || cc.singleUse || cc.doNotReuse || cc.goAway != nil,
 		StreamsActive:        len(cc.streams) + cc.pendingResets,
 		StreamsReserved:      cc.streamsReserved,
 		StreamsPending:       cc.pendingRequests,
@@ -685,6 +698,9 @@ func (cc *ClientConn) idleState() clientConnIdleState {
 }
 
 func (cc *ClientConn) idleStateLocked() (st clientConnIdleState) {
+	if cc.retireIfExpiredLocked() {
+		return
+	}
 	if cc.singleUse && cc.nextStreamID > 1 {
 		return
 	}
@@ -806,7 +822,7 @@ func (cc *ClientConn) forceCloseConn() {
 
 func (cc *ClientConn) closeIfIdle() {
 	cc.mu.Lock()
-	if len(cc.streams) > 0 || cc.streamsReserved > 0 {
+	if len(cc.streams) > 0 || cc.streamsReserved > 0 || cc.lifetimeUses > 0 {
 		cc.mu.Unlock()
 		return
 	}
@@ -971,7 +987,19 @@ func (cc *ClientConn) roundTrip(req *http.Request) (*http.Response, error) {
 	return cc.internalRoundTrip(req, nil)
 }
 
-func (cc *ClientConn) internalRoundTrip(req *http.Request, streamf func(*clientStream)) (*http.Response, error) {
+func (cc *ClientConn) internalRoundTrip(req *http.Request, streamf func(*clientStream)) (response *http.Response, responseErr error) {
+	if !cc.retireAt.IsZero() {
+		cc.mu.Lock()
+		cc.lifetimeUses++
+		cc.mu.Unlock()
+		defer func() {
+			if responseErr != nil {
+				cc.releaseLifetimeUse()
+			} else {
+				response.Body = &lifetimeBody{ReadCloser: response.Body, cc: cc}
+			}
+		}()
+	}
 	ctx := req.Context()
 	cs := &clientStream{
 		cc:                   cc,
@@ -1140,6 +1168,7 @@ func (cs *clientStream) writeRequest(req *http.Request, streamf func(*clientStre
 		cc.idleTimer.Stop()
 	}
 	cc.decrStreamReservationsLocked()
+	cs.reservationReleased = true
 	if err := cc.awaitOpenSlotForStreamLocked(cs); err != nil {
 		cc.mu.Unlock()
 		<-cc.reqHeaderMu
@@ -1321,7 +1350,7 @@ func encodeRequestHeaders(req *http.Request, addGzipHeader bool, peerMaxHeaderLi
 func (cs *clientStream) cleanupWriteRequest(err error) {
 	cc := cs.cc
 
-	if cs.ID == 0 {
+	if cs.ID == 0 && !cs.reservationReleased {
 		// We were canceled before creating the stream, so return our reservation.
 		cc.decrStreamReservations()
 	}
@@ -1418,6 +1447,11 @@ func (cs *clientStream) cleanupWriteRequest(err error) {
 		cc.Close()
 	}
 
+	if !cc.retireAt.IsZero() {
+		cc.mu.Lock()
+		cc.retireIfExpiredLocked()
+		cc.mu.Unlock()
+	}
 	close(cs.donec)
 	cc.maybeCallStateHook()
 }
@@ -1425,6 +1459,12 @@ func (cs *clientStream) cleanupWriteRequest(err error) {
 // awaitOpenSlotForStreamLocked waits until len(streams) < maxConcurrentStreams.
 // Must hold cc.mu.
 func (cc *ClientConn) awaitOpenSlotForStreamLocked(cs *clientStream) error {
+	var retirementWake *time.Timer
+	defer func() {
+		if retirementWake != nil {
+			retirementWake.Stop()
+		}
+	}()
 	for {
 		if cc.closed && cc.nextStreamID == 1 && cc.streamsReserved == 0 {
 			// This is the very first request sent to this connection.
@@ -1438,6 +1478,14 @@ func (cc *ClientConn) awaitOpenSlotForStreamLocked(cs *clientStream) error {
 		cc.lastIdle = time.Time{}
 		if cc.currentRequestCountLocked() < int(cc.maxConcurrentStreams) {
 			return nil
+		}
+		if retirementWake == nil && !cc.retireAt.IsZero() {
+			retirementWake = time.AfterFunc(time.Until(cc.retireAt), func() {
+				cc.mu.Lock()
+				cc.retireIfExpiredLocked()
+				cc.cond.Broadcast()
+				cc.mu.Unlock()
+			})
 		}
 		cc.pendingRequests++
 		cc.cond.Wait()
@@ -1787,6 +1835,7 @@ func (cc *ClientConn) forgetStreamID(id uint32) {
 	// Wake up writeRequestBody via clientStream.awaitFlowControl and
 	// wake up RoundTrip if there is a pending request.
 	cc.cond.Broadcast()
+	cc.retireIfExpiredLocked()
 
 	closeOnIdle := cc.singleUse || cc.doNotReuse || cc.t.disableKeepAlives() || cc.goAway != nil
 	if closeOnIdle && cc.streamsReserved == 0 && len(cc.streams) == 0 {

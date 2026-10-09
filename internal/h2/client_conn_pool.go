@@ -61,6 +61,9 @@ func (p *clientConnPool) getClientConn(req *http.Request, addr string, dialOnMis
 		return cc, nil
 	}
 	for {
+		if err := req.Context().Err(); err != nil {
+			return nil, err
+		}
 		p.mu.Lock()
 		for _, cc := range p.conns[addr] {
 			if cc.ReserveNewRequest() {
@@ -101,6 +104,12 @@ func (p *clientConnPool) getClientConn(req *http.Request, addr string, dialOnMis
 		}
 		if cc.ReserveNewRequest() {
 			return cc, nil
+		}
+		cc.mu.Lock()
+		expiredBeforeUse := cc.retiring && cc.nextStreamID == 1
+		cc.mu.Unlock()
+		if expiredBeforeUse {
+			return nil, ErrConnectionExpired
 		}
 	}
 }

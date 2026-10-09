@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add opt-in physical connection age and per-connection jitter, including HTTP/2
+  draining through response body completion and HTTP/1 pool retirement.
+- Disabled by default; retains Session state and TLS resumption.
+
 ## 0.3.1 — 2026-10-02
 
 - Preserve proxy CONNECT socket timeout classification when the socket deadline

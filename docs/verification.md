@@ -95,3 +95,56 @@ claim of complete Chrome behavior or a general throughput benchmark. Full Trust
 Anchor IDs negotiation, unsupported PQ signature verification and application of
 peer ALPS HTTP/2 settings remain outside the prototype. The reports preserve
 those capability notes alongside the successful fingerprint checks.
+
+## Connection lifetime — local verification, 2026-10-09
+
+The unreleased Go/native changes were tested on macOS with the local Go 1.27.1
+toolchain. All network fixtures bind loopback and use generated certificates.
+They do not load external proxy settings, credentials or business URLs.
+
+```sh
+go test -race ./...
+go vet ./...
+RUTS_LIFETIME_LONG=1 go test -race -run TestConnectionLifetimeLongProxy -timeout 8m -v .
+```
+
+The full race suite and vet passed. The opt-in long test passed in 331.793 seconds.
+Each group retains one Session for three cycles, sends keepalive traffic every
+two seconds for 90 seconds, then starts a POST whose body completes 20 seconds
+later. The proxy half-closes its client-facing TCP write side at a fixed tunnel
+age of 100 seconds. This explicitly exercises local socket `CloseWrite`/FIN
+behavior; no packet capture was collected.
+
+| Protocol | Maximum age / jitter | Slow POST results | Physical CONNECTs |
+| --- | --- | --- | --- |
+| H2 | disabled | 3 expected unexpected-EOF failures at about 100 seconds per cycle | 3 |
+| H1 | disabled | 3 expected unexpected-EOF failures at about 100 seconds per cycle | 3 |
+| H2 | 60s / 10s | 3 complete bodies, no errors | 6 |
+| H1 | 60s / 10s | 3 complete bodies, no errors | 6 |
+
+Evidence and interpretation:
+
+- `TestConnectionLifetimeSlowBodyAndPOST` compares server-side remote socket
+  identities and CONNECT counts, holds a partially delivered response across
+  retirement, checks the old tracked socket remains open, then verifies its
+  removal after completion. Every unique POST ID executes exactly once.
+- `internal/h2` lifetime tests concurrently reject reservations after expiry,
+  retain an outstanding reservation, check final stream admission, keep buffered
+  body bytes owned after END_STREAM, and wake a blocked stream-quota waiter.
+- Concurrent replacement admits 32 requests through one replacement H2 dial.
+  Stream cancellation leaves its sibling body intact. Repeated rotation and
+  concurrent Close leave no tracked physical connections; fixture cleanup joins
+  proxy workers. These are ownership assertions, not an OS-wide FD leak audit.
+- H1 forced negotiation, ALPN fallback, and cleartext paths rotate; separate
+  origins keep independent ages. Disabled sessions continue reusing their socket.
+- Tiny ages fail before any HTTP request, replacement CONNECT stalls obey the
+  original deadline, invalid native values fail validation, and an overlong POST
+  still receives the original transport error without replay.
+- Python integration uses the rebuilt shared library to prove configuration
+  reaches the transport and that Cookie configuration and real TLS ticket
+  acceptance survive replacement; see the Python repository's verification log.
+
+The 100-second proxy experiment is synthetic and does not establish any external
+provider's behavior. This public record covers synthetic local tests only.
+No private proxy scripts, configuration, packet captures or historical evidence
+were copied into this repo.

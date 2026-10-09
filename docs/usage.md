@@ -392,3 +392,8 @@ cmd/requests-utls-shared/   C ABI shared-library build target
 
 See `internal/h2/UPSTREAM.md` for the upstream revision and local changes. Preserve
 the upstream licenses and review upstream transport fixes when updating the fork.
+
+## Limit connection lifetime
+
+See [connection lifetime (中文)](connection-lifetime.md) for the optional Go,
+Python and native parameters, examples, validation and graceful retirement rules.

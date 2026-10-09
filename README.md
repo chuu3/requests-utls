@@ -7,7 +7,8 @@ through CFFI; this repository owns the Go API and native ABI.
 
 ## Quick start
 
-Requires Go 1.26+; native libraries and race tests also require a C compiler.
+Use Go 1.27.2 for native builds and CI (minimum Go 1.26.9); native libraries
+and race tests also require a C compiler.
 Run from the repository root:
 
 ```sh
@@ -38,6 +39,7 @@ Streaming, HTTP/3 and HTTPS/SOCKS proxy connections are not supported.
 | Task | Guide |
 | --- | --- |
 | Why redirects and Cookie state are caller-owned | [Design rationale (中文)](docs/redirects-and-cookies.md) |
+| Limit physical connection lifetime | [Parameters and interfaces (中文)](docs/connection-lifetime.md) |
 | Go API, header order, profiles and CLI | [Usage](docs/usage.md) |
 | Bind another language | [ABI](docs/abi.md), [native artifacts](docs/native-artifacts.md) |
 | Understand validation evidence | [Verification](docs/verification.md) |

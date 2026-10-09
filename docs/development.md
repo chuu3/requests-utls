@@ -9,7 +9,7 @@ All shell commands run from the repository root unless stated otherwise.
 ## Build and test
 
 Use a Go toolchain satisfying `go.mod`, Python 3.11+, and a C compiler for the
-race detector and shared library. Release wheels currently use Go 1.27.1;
+race detector and shared library. Native builds use Go 1.27.2;
 the Python project's `engine.lock.json` is the release source of truth.
 
 ```sh

@@ -393,3 +393,30 @@ func TestPhaseTimeoutMetadata(t *testing.T) {
 	}
 	r.RequestRelease(submitted.Handle)
 }
+
+func TestConnectionLifetimeConfiguration(t *testing.T) {
+	for _, fields := range []string{
+		`"max_connection_age_ms":-1`,
+		`"connection_age_jitter_ms":1`,
+		`"max_connection_age_ms":5,"connection_age_jitter_ms":5`,
+		`"max_connection_age_ms":9223372036855`,
+		`"max_connection_age_ms":true`,
+		`"max_connection_age_ms":null`,
+		`"connection_age_jitter_ms":null`,
+		`"max_connection_age_ms":0.5`,
+	} {
+		r := NewRegistry()
+		result := r.SessionCreate([]byte(`{"profile":` + testProfile + `,` + fields + `}`))
+		if result.Code != InvalidInput {
+			t.Fatalf("accepted %s: %+v", fields, result)
+		}
+	}
+	for _, fields := range []string{`"max_connection_age_ms":0`, `"max_connection_age_ms":1`, `"max_connection_age_ms":60000,"connection_age_jitter_ms":10000`} {
+		r := NewRegistry()
+		result := r.SessionCreate([]byte(`{"profile":` + testProfile + `,` + fields + `}`))
+		if result.Code != OK {
+			t.Fatalf("rejected %s: %s", fields, result.Data)
+		}
+		r.SessionClose(result.Handle)
+	}
+}

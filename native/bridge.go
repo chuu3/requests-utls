@@ -52,25 +52,42 @@ func Error(code int32, message string) Result {
 	return Result{Code: code, Data: data}
 }
 
+// Connection lifetime values are integer milliseconds; JSON null is not zero.
+type connectionLifetimeMS int64
+
+func (ms *connectionLifetimeMS) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return errors.New("connection lifetime must be integer milliseconds")
+	}
+	var value int64
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*ms = connectionLifetimeMS(value)
+	return nil
+}
+
 type sessionConfig struct {
-	ConnectTimeoutMS         int64           `json:"connect_timeout_ms"`
-	ProxyConnectTimeoutMS    int64           `json:"proxy_connect_timeout_ms"`
-	TLSHandshakeTimeoutMS    int64           `json:"tls_handshake_timeout_ms"`
-	ResponseHeaderTimeoutMS  int64           `json:"response_header_timeout_ms"`
-	BodyTimeoutMS            int64           `json:"body_timeout_ms"`
-	Profile                  json.RawMessage `json:"profile"`
-	ProxyURL                 string          `json:"proxy_url"`
-	ProxyAuth                *proxyAuth      `json:"proxy_auth"`
-	CAPEM                    string          `json:"ca_pem"`
-	InsecureSkipVerify       bool            `json:"insecure_skip_verify"`
-	DisableSessionResumption bool            `json:"disable_session_resumption"`
-	ForceHTTP1               bool            `json:"force_http1"`
-	RandomJA3                bool            `json:"random_ja3"`
-	DisableContentDecoding   bool            `json:"disable_content_decoding"`
-	MaxConcurrentRequests    int             `json:"max_concurrent_requests"`
-	MaxPendingRequests       int             `json:"max_pending_requests"`
-	MaxResponseBytes         int64           `json:"max_response_bytes"`
-	MaxUnprocessedRetries    int             `json:"max_unprocessed_retries"`
+	MaxConnectionAgeMS       connectionLifetimeMS `json:"max_connection_age_ms"`
+	ConnectionAgeJitterMS    connectionLifetimeMS `json:"connection_age_jitter_ms"`
+	ConnectTimeoutMS         int64                `json:"connect_timeout_ms"`
+	ProxyConnectTimeoutMS    int64                `json:"proxy_connect_timeout_ms"`
+	TLSHandshakeTimeoutMS    int64                `json:"tls_handshake_timeout_ms"`
+	ResponseHeaderTimeoutMS  int64                `json:"response_header_timeout_ms"`
+	BodyTimeoutMS            int64                `json:"body_timeout_ms"`
+	Profile                  json.RawMessage      `json:"profile"`
+	ProxyURL                 string               `json:"proxy_url"`
+	ProxyAuth                *proxyAuth           `json:"proxy_auth"`
+	CAPEM                    string               `json:"ca_pem"`
+	InsecureSkipVerify       bool                 `json:"insecure_skip_verify"`
+	DisableSessionResumption bool                 `json:"disable_session_resumption"`
+	ForceHTTP1               bool                 `json:"force_http1"`
+	RandomJA3                bool                 `json:"random_ja3"`
+	DisableContentDecoding   bool                 `json:"disable_content_decoding"`
+	MaxConcurrentRequests    int                  `json:"max_concurrent_requests"`
+	MaxPendingRequests       int                  `json:"max_pending_requests"`
+	MaxResponseBytes         int64                `json:"max_response_bytes"`
+	MaxUnprocessedRetries    int                  `json:"max_unprocessed_retries"`
 }
 
 type proxyAuth struct {
@@ -164,12 +181,14 @@ func (r *Registry) SessionCreate(data []byte) Result {
 	if err != nil {
 		return Error(InvalidInput, err.Error())
 	}
-	for _, ms := range []int64{config.ConnectTimeoutMS, config.ProxyConnectTimeoutMS, config.TLSHandshakeTimeoutMS, config.ResponseHeaderTimeoutMS, config.BodyTimeoutMS} {
+	for _, ms := range []int64{int64(config.MaxConnectionAgeMS), int64(config.ConnectionAgeJitterMS), config.ConnectTimeoutMS, config.ProxyConnectTimeoutMS, config.TLSHandshakeTimeoutMS, config.ResponseHeaderTimeoutMS, config.BodyTimeoutMS} {
 		if ms < 0 || ms > int64((1<<63-1)/time.Millisecond) {
-			return Error(InvalidInput, "phase timeouts must be nonnegative milliseconds fitting a Go duration")
+			return Error(InvalidInput, "timeouts and connection lifetimes must be nonnegative milliseconds fitting a Go duration")
 		}
 	}
 	options := requestsutls.Options{
+		MaxConnectionAge:      time.Duration(config.MaxConnectionAgeMS) * time.Millisecond,
+		ConnectionAgeJitter:   time.Duration(config.ConnectionAgeJitterMS) * time.Millisecond,
 		ConnectTimeout:        time.Duration(config.ConnectTimeoutMS) * time.Millisecond,
 		ProxyConnectTimeout:   time.Duration(config.ProxyConnectTimeoutMS) * time.Millisecond,
 		TLSHandshakeTimeout:   time.Duration(config.TLSHandshakeTimeoutMS) * time.Millisecond,

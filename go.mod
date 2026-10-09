@@ -1,12 +1,14 @@
 module github.com/chuu3/requests-utls
 
-go 1.26.0
+go 1.26.9
+
+toolchain go1.27.2
 
 require (
 	github.com/andybalholm/brotli v1.2.5
 	github.com/klauspost/compress v1.20.1
 	github.com/refraction-networking/utls v1.8.2
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 )
 
 require (

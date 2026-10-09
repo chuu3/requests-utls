@@ -99,7 +99,18 @@ func (s *Session) takeHTTPConn(key string, h1 bool) *http1Conn {
 		pool = s.http1Idle
 	}
 	entries := pool[key]
+	for len(entries) > 0 && connectionExpired(entries[len(entries)-1].conn) {
+		old := entries[len(entries)-1]
+		old.poolGeneration++
+		if old.idleTimer != nil {
+			old.idleTimer.Stop()
+		}
+		old.conn.Close()
+		entries = entries[:len(entries)-1]
+		pool[key] = entries
+	}
 	if len(entries) == 0 {
+		delete(pool, key)
 		return nil
 	}
 	conn := entries[len(entries)-1]
@@ -117,7 +128,7 @@ func (s *Session) takeHTTPConn(key string, h1 bool) *http1Conn {
 
 func (s *Session) putHTTPConn(key string, conn *http1Conn, h1 bool) {
 	s.protocolMu.Lock()
-	if s.ctx.Err() != nil {
+	if s.ctx.Err() != nil || connectionExpired(conn.conn) {
 		s.protocolMu.Unlock()
 		conn.conn.Close()
 		return
@@ -253,11 +264,12 @@ func (s *Session) dialHTTP1(ctx context.Context, req *http.Request) (*http1Conn,
 		}
 		return newHTTP1Conn(conn), nil
 	}
+	createdAt, retireAt := s.newConnectionLifetime()
 	conn, err := s.dialNetwork(ctx, "tcp", httpAuthority(req))
 	if err != nil {
 		return nil, err
 	}
-	tc := &trackedConn{Conn: conn, session: s}
+	tc := &trackedConn{Conn: conn, session: s, createdAt: createdAt, retireAt: retireAt}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -320,12 +332,22 @@ func (s *Session) roundTripHTTP1(req *http.Request, headers []HeaderField, body 
 	}
 	key := httpOrigin(req)
 	conn := s.takeHTTPConn(key, true)
+	// If preempted at the pool boundary, discard the unreserved idle socket.
+	if conn != nil && connectionExpired(conn.conn) {
+		conn.conn.Close()
+		conn = nil
+	}
 	if conn == nil {
 		var err error
 		conn, err = s.dialHTTP1(req.Context(), req)
 		if err != nil {
 			return nil, err
 		}
+	}
+	// This connection is exclusively owned here; this is the final reservation.
+	if connectionExpired(conn.conn) {
+		conn.conn.Close()
+		return nil, ErrConnectionExpired
 	}
 	// dialHTTP1 hands an H2 connection back before reaching this point. Preserve
 	// all occurrences for H2; only actual H1 requests combine Cookie fields.

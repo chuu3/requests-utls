@@ -45,8 +45,8 @@ and structured error stages.
 
 ## Build and verify
 
-Use a Go toolchain that satisfies `go.mod` (the initial prototype is verified with
-Go 1.27.1 on macOS arm64). The race detector also requires a C compiler.
+Use Go 1.27.2 for the validated native build; `go.mod` records the minimum
+supported version. The race detector also requires a C compiler.
 
 ```sh
 go test -race ./...
@@ -392,3 +392,8 @@ cmd/requests-utls-shared/   C ABI shared-library build target
 
 See `internal/h2/UPSTREAM.md` for the upstream revision and local changes. Preserve
 the upstream licenses and review upstream transport fixes when updating the fork.
+
+## Limit connection lifetime
+
+See [connection lifetime (中文)](connection-lifetime.md) for the optional Go,
+Python and native parameters, examples, validation and graceful retirement rules.

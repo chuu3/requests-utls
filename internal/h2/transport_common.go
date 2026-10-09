@@ -46,6 +46,10 @@ func ConfigureTransports(t1 *http.Transport) (*Transport, error) {
 //
 // Deprecated: Use [http.Transport] instead.
 type Transport struct {
+	// ConnectionRetireAt returns the immutable physical connection deadline.
+	// Nil preserves upstream lifetime behavior. Configure before first use.
+	ConnectionRetireAt func(net.Conn) time.Time
+
 	// ResponseHeaderTimeout bounds waiting for final response headers after the
 	// request has been written. It cancels only the affected stream.
 	ResponseHeaderTimeout time.Duration

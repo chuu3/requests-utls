@@ -109,3 +109,52 @@ func TestLifetimeWakesStreamQuotaWaiter(t *testing.T) {
 	}
 	cc.releaseLifetimeUse()
 }
+
+func TestLifetimeIdleCleanupAfterBufferedBodies(t *testing.T) {
+	for _, release := range []string{"EOF", "Close"} {
+		t.Run(release, func(t *testing.T) {
+			cc, peer := lifetimeTestConn(t)
+			cc.lifetimeUses = 2
+			cc.idleTimeout = 10 * time.Millisecond
+			cc.lastIdle = time.Now()
+			fired := make(chan struct{}, 1)
+			cc.idleTimer = time.AfterFunc(time.Hour, func() {
+				cc.onIdleTimeout()
+				select {
+				case fired <- struct{}{}:
+				default:
+				}
+			})
+			defer cc.idleTimer.Stop()
+			cc.idleTimer.Reset(cc.idleTimeout)
+			select {
+			case <-fired:
+			case <-time.After(time.Second):
+				t.Fatal("idle timer did not fire")
+			}
+			first := &lifetimeBody{ReadCloser: io.NopCloser(strings.NewReader("first")), cc: cc}
+			second := &lifetimeBody{ReadCloser: io.NopCloser(strings.NewReader("second")), cc: cc}
+			if _, err := io.ReadAll(first); err != nil {
+				t.Fatal(err)
+			}
+			cc.onIdleTimeout()
+			cc.mu.Lock()
+			closed := cc.closed
+			cc.mu.Unlock()
+			if closed {
+				t.Fatal("closed while a sibling response body remains owned")
+			}
+			if release == "EOF" {
+				if data, err := io.ReadAll(second); err != nil || string(data) != "second" {
+					t.Fatalf("body=%q err=%v", data, err)
+				}
+			} else if err := second.Close(); err != nil {
+				t.Fatal(err)
+			}
+			peer.SetReadDeadline(time.Now().Add(time.Second))
+			if _, err := peer.Read(make([]byte, 1)); err != io.EOF {
+				t.Fatalf("idle socket not closed after last body release: %v", err)
+			}
+		})
+	}
+}

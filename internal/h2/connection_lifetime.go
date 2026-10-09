@@ -29,6 +29,12 @@ func (cc *ClientConn) releaseLifetimeUse() {
 	cc.mu.Lock()
 	cc.lifetimeUses--
 	cc.retireIfExpiredLocked()
+	if !cc.closed && cc.lifetimeUses == 0 && cc.streamsReserved == 0 && len(cc.streams) == 0 && cc.idleTimer != nil && !cc.lastIdle.IsZero() {
+		// The idle timer may have fired while a buffered response body was
+		// still owned. Restore cleanup using the original idle deadline, so
+		// releasing a body does not grant an extra idle timeout interval.
+		cc.idleTimer.Reset(max(0, time.Until(cc.lastIdle.Add(cc.idleTimeout))))
+	}
 	cc.mu.Unlock()
 }
 

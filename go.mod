@@ -5,8 +5,8 @@ go 1.26.9
 toolchain go1.27.2
 
 require (
-	github.com/andybalholm/brotli v1.2.5
-	github.com/klauspost/compress v1.20.1
+	github.com/andybalholm/brotli v1.2.7
+	github.com/klauspost/compress v1.20.3
 	github.com/refraction-networking/utls v1.8.2
 	golang.org/x/net v0.60.0
 )
